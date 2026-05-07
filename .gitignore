@@ -1,0 +1,15 @@
+.DS_Store
+node_modules/
+.tools/
+dist/*.adb
+dist/*.asm
+dist/*.cdb
+dist/*.ihx
+dist/*.lst
+dist/*.map
+dist/*.noi
+dist/*.o
+dist/*.rst
+site-dist/
+public/roms/*.gb
+test-artifacts/

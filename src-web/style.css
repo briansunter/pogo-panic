@@ -1,0 +1,133 @@
+:root {
+  color: #e8efdf;
+  background: #20221d;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  display: grid;
+  place-items: center;
+  background:
+    linear-gradient(135deg, rgba(114, 144, 89, 0.22), transparent 34%),
+    #20221d;
+}
+
+button {
+  border: 0;
+  border-radius: 6px;
+  padding: 0.75rem 0.9rem;
+  color: #1a1d18;
+  background: #dfe8bf;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+button.active,
+button:active {
+  transform: translateY(1px);
+  background: #f3d764;
+}
+
+.shell {
+  width: min(980px, calc(100vw - 28px));
+  display: grid;
+  grid-template-columns: minmax(320px, 560px) minmax(220px, 320px);
+  gap: 28px;
+  align-items: center;
+}
+
+.gameboy {
+  padding: 22px;
+  border-radius: 8px;
+  background: #59624b;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.35);
+}
+
+.screen-wrap {
+  padding: 18px;
+  border-radius: 8px;
+  background: #11130f;
+}
+
+canvas {
+  display: block;
+  width: 100%;
+  aspect-ratio: 160 / 144;
+  background: #cadc9f;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.status {
+  min-height: 1.4rem;
+  margin: 14px 0;
+  font-weight: 700;
+  color: #f3d764;
+}
+
+.controls {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.panel h1 {
+  margin: 0 0 10px;
+  font-size: clamp(2rem, 5vw, 4.5rem);
+  line-height: 0.92;
+}
+
+.panel p {
+  margin: 0 0 24px;
+  color: #cdd8ba;
+  font-size: 1.08rem;
+}
+
+dl {
+  margin: 0 0 24px;
+  display: grid;
+  gap: 10px;
+}
+
+dl div {
+  display: grid;
+  grid-template-columns: 118px 1fr;
+  gap: 10px;
+}
+
+dt {
+  color: #f3d764;
+  font-weight: 800;
+}
+
+dd {
+  margin: 0;
+  color: #dfe8bf;
+}
+
+@media (max-width: 760px) {
+  body {
+    align-items: start;
+    padding: 14px 0;
+  }
+
+  .shell {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+
+  .panel {
+    order: -1;
+  }
+
+  .controls {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

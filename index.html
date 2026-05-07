@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pocket Pogo Panic</title>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="gameboy" aria-label="Pocket Pogo Panic emulator">
+        <div class="screen-wrap">
+          <canvas id="screen" width="160" height="144" aria-label="Game Boy screen"></canvas>
+        </div>
+        <div class="status" id="status">Loading ROM...</div>
+        <div class="controls" aria-label="Virtual controls">
+          <button data-key="left" aria-label="Left">Left</button>
+          <button data-key="right" aria-label="Right">Right</button>
+          <button data-key="b" aria-label="B">B</button>
+          <button data-key="a" aria-label="A">A</button>
+          <button data-key="start" aria-label="Start">Start</button>
+        </div>
+      </section>
+      <aside class="panel">
+        <h1>Pocket Pogo Panic</h1>
+        <p>You cannot stop bouncing. You can only bounce better.</p>
+        <dl>
+          <div><dt>Left / Right</dt><dd>Steer</dd></div>
+          <div><dt>A</dt><dd>Stomp</dd></div>
+          <div><dt>B</dt><dd>Tilt / short hop</dd></div>
+          <div><dt>Enter</dt><dd>Start / pause</dd></div>
+        </dl>
+        <button id="reload">Reload ROM</button>
+      </aside>
+    </main>
+    <script type="module" src="/src-web/main.js"></script>
+  </body>
+</html>

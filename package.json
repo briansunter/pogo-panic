@@ -1,0 +1,18 @@
+{
+  "name": "pocket-pogo-panic",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "setup:gbdk": "bash scripts/setup-gbdk.sh",
+    "build:rom": "make",
+    "build:web": "vite build",
+    "dev": "vite --host 127.0.0.1",
+    "test": "node --test test/*.mjs"
+  },
+  "dependencies": {
+    "gameboy-emulator": "1.1.2",
+    "vite": "8.0.11"
+  },
+  "devDependencies": {}
+}
