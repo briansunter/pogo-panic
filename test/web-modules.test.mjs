@@ -380,6 +380,99 @@ test("debug level generator exposes all adventure rooms with goals", () => {
   }
 });
 
+test("non-tutorial adventure rooms use upper routes and world mechanics", () => {
+  const levels = generateAdventureLevels();
+  const interestingTiles = new Set([
+    TILE.SOLID,
+    TILE.CRACK,
+    TILE.SPRING,
+    TILE.SPIKE,
+    TILE.COIN,
+    TILE.BATTERY,
+    TILE.EXIT,
+    TILE.SWITCH,
+    TILE.TOGGLE,
+    TILE.FAN_L,
+    TILE.FAN_R,
+    TILE.CONV_L,
+    TILE.CONV_R,
+    TILE.WATER,
+    TILE.BUBBLE,
+    TILE.MOVING,
+    TILE.ROCK,
+    TILE.TOGGLE_OFF
+  ]);
+  const mechanicTiles = new Set([
+    TILE.SPRING,
+    TILE.SWITCH,
+    TILE.TOGGLE,
+    TILE.FAN_L,
+    TILE.FAN_R,
+    TILE.CONV_L,
+    TILE.CONV_R,
+    TILE.MOVING,
+    TILE.CRACK,
+    TILE.BUBBLE,
+    TILE.ROCK
+  ]);
+  const mechanicTotals = new Map();
+
+  for (const room of levels) {
+    if (room.world === 0 && room.local < 8) continue;
+
+    let minY = Infinity;
+    let maxY = -Infinity;
+    let mechanicCount = 0;
+
+    for (let y = 0; y < room.stage.length; y += 1) {
+      for (let x = 0; x < room.stage[y].length; x += 1) {
+        const tile = room.stage[y][x];
+        if (interestingTiles.has(tile)) {
+          minY = Math.min(minY, y);
+          maxY = Math.max(maxY, y);
+        }
+        if (mechanicTiles.has(tile)) mechanicCount += 1;
+      }
+    }
+
+    assert.ok(minY <= 7, `level ${room.level + 1} should place route content in the upper half`);
+    assert.ok(maxY - minY + 1 >= 10, `level ${room.level + 1} should span at least 10 rows`);
+
+    if (!mechanicTotals.has(room.world)) mechanicTotals.set(room.world, []);
+    mechanicTotals.get(room.world).push(mechanicCount);
+  }
+
+  const minimumAverageMechanics = new Map([
+    [0, 4],
+    [1, 7],
+    [2, 3],
+    [3, 12],
+    [4, 10]
+  ]);
+
+  for (const [world, minimum] of minimumAverageMechanics) {
+    const counts = mechanicTotals.get(world);
+    const average = counts.reduce((sum, count) => sum + count, 0) / counts.length;
+    assert.ok(average >= minimum, `world ${world + 1} should average at least ${minimum} mechanic tiles`);
+  }
+});
+
+test("advanced adventure rooms add stomp rocks and upper patrol pressure", () => {
+  const levels = generateAdventureLevels();
+
+  for (const room of levels) {
+    if (room.world === 0 && room.local < 8) continue;
+
+    const rockCount = room.stage.flat().filter((tile) => tile === TILE.ROCK).length;
+    if (room.local >= 4) {
+      assert.ok(rockCount > 0, `level ${room.level + 1} should include stomp-breakable rocks`);
+    }
+    if (room.local >= 12) {
+      assert.ok(room.enemies.length > 0, `level ${room.level + 1} should add late-room patrol pressure`);
+    }
+  }
+});
+
 test("spring tutorial keeps the spring beside the starter platform", () => {
   const room = generateAdventureLevel(4);
   assert.equal(room.stage[14][6], TILE.SPRING);

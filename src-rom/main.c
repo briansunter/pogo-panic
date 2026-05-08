@@ -12,9 +12,10 @@
 #define PLAYER_W 6
 #define PLAYER_H 8
 #define MAX_ENEMIES 5
-#define FONT_BASE 22
+#define FONT_BASE 24
 #define SPRITE_BASE 96
-#define FONT_COUNT 42
+#define FONT_COUNT 43
+#define TITLE_FONT_BASE (FONT_BASE + FONT_COUNT)
 #define HUD_Y 1
 #define CEILING_Y 2
 #define SAVE_MAGIC 0x5047u
@@ -25,14 +26,15 @@
 #define TILE2(a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p) a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p
 #define TILEF_SOLID 0x01u
 #define TILEF_DANGER 0x02u
-#define PLAYER_ACCEL 2
-#define PLAYER_FAST_ACCEL 3
-#define PLAYER_MAX_VX 40
-#define PLAYER_AIR_KICK 12
-#define BOUNCE_NORMAL ((int16_t)-88)
-#define BOUNCE_SHORT FIX(-4)
-#define BOUNCE_SPRING ((int16_t)-120)
-#define BOUNCE_SPRING_SHORT FIX(-6)
+#define PLAYER_ACCEL 3
+#define PLAYER_FRICTION 2
+#define PLAYER_MAX_VX 34
+#define PLAYER_AIR_KICK 6
+#define BOUNCE_NORMAL ((int16_t)-80)
+#define BOUNCE_SHORT ((int16_t)-56)
+#define BOUNCE_SPRING ((int16_t)-96)
+#define BOUNCE_SPRING_SHORT ((int16_t)-72)
+#define COIN_LIMIT 99u
 
 #define NOTE_REST 0u
 #define NOTE_C3 1046u
@@ -122,6 +124,8 @@ enum TileType {
     T_ARROW_D,
     T_ARROW_R,
     T_WALL,
+    T_TITLE_SHADOW,
+    T_TITLE_FILL,
     TILE_COUNT
 };
 
@@ -197,7 +201,9 @@ static const uint8_t bg_tiles[] = {
     TILE2(0x81,0x81,0x00,0x00,0x3c,0x00,0x24,0x00,0x24,0x00,0x3c,0x00,0x00,0x00,0x81,0x81), /* toggle off */
     TILE2(0x18,0x18,0x18,0x18,0x18,0x18,0x7e,0x7e,0x3c,0x3c,0x18,0x18,0x00,0x00,0x00,0x00), /* arrow down */
     TILE2(0x10,0x10,0x18,0x18,0x1c,0x1c,0xfe,0xfe,0xfe,0xfe,0x1c,0x1c,0x18,0x18,0x10,0x10), /* arrow right */
-    TILE2(0xff,0xff,0x81,0xff,0xbd,0xc3,0x81,0xff,0x81,0xff,0xbd,0xc3,0x81,0xff,0xff,0xff)  /* wall */
+    TILE2(0xff,0xff,0x81,0xff,0xbd,0xc3,0x81,0xff,0x81,0xff,0xbd,0xc3,0x81,0xff,0xff,0xff), /* wall */
+    TILE2(0x00,0xff,0x00,0xff,0x00,0xff,0x00,0xff,0x00,0xff,0x00,0xff,0x00,0xff,0x00,0xff), /* title shadow */
+    TILE2(0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff)  /* title fill */
 };
 
 static const uint8_t sprite_tiles[] = {
@@ -230,7 +236,9 @@ static const uint8_t tile_flags[] = {
     0,              /* toggle off */
     0,              /* arrow down */
     0,              /* arrow right */
-    TILEF_SOLID     /* wall */
+    TILEF_SOLID,    /* wall */
+    0,              /* title shadow */
+    0               /* title fill */
 };
 
 static const uint8_t font_tiles[] = {
@@ -275,7 +283,39 @@ static const uint8_t font_tiles[] = {
     TILE8(0x00,0x00,0x00,0x7c,0x00,0x00,0x00,0x00), /* dash */
     TILE8(0x00,0x00,0x00,0x00,0x00,0x30,0x30,0x00), /* dot */
     TILE8(0x04,0x08,0x08,0x10,0x20,0x20,0x40,0x00), /* slash */
-    TILE8(0x10,0x10,0x10,0x10,0x10,0x00,0x10,0x00)  /* bang */
+    TILE8(0x10,0x10,0x10,0x10,0x10,0x00,0x10,0x00), /* bang */
+    TILE8(0x3c,0x42,0x9a,0xaa,0xae,0x80,0x7c,0x00)  /* at */
+};
+
+static const uint8_t title_font_tiles[] = {
+    TILE2(0x7f,0x7f,0x7f,0x7f,0x60,0x60,0x60,0x60,0x60,0x60,0x7f,0x7f,0x7f,0x7f,0x60,0x60), /* title P TL */
+    TILE2(0xe0,0xe0,0xf0,0xf0,0x30,0x30,0x30,0x30,0x30,0x30,0xf0,0xf0,0xe0,0xe0,0x00,0x00), /* title P TR */
+    TILE2(0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x00,0x00), /* title P BL */
+    TILE2(0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00), /* title P BR */
+    TILE2(0x3f,0x3f,0x7f,0x7f,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60), /* title O TL */
+    TILE2(0xf0,0xf0,0xf8,0xf8,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18), /* title O TR */
+    TILE2(0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x7f,0x7f,0x3f,0x3f,0x00,0x00), /* title O BL */
+    TILE2(0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0xf8,0xf8,0xf0,0xf0,0x00,0x00), /* title O BR */
+    TILE2(0x3f,0x3f,0x7f,0x7f,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x61,0x61,0x61,0x61), /* title G TL */
+    TILE2(0xf8,0xf8,0xf8,0xf8,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xf8,0xf8,0xf8,0xf8), /* title G TR */
+    TILE2(0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x7f,0x7f,0x3f,0x3f,0x00,0x00), /* title G BL */
+    TILE2(0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0xf8,0xf8,0xf8,0xf8,0x00,0x00), /* title G BR */
+    TILE2(0x1f,0x1f,0x3f,0x3f,0x70,0x70,0x60,0x60,0x60,0x60,0x60,0x60,0x7f,0x7f,0x7f,0x7f), /* title A TL */
+    TILE2(0xe0,0xe0,0xf0,0xf0,0x38,0x38,0x18,0x18,0x18,0x18,0x18,0x18,0xf8,0xf8,0xf8,0xf8), /* title A TR */
+    TILE2(0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x00,0x00), /* title A BL */
+    TILE2(0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x00,0x00), /* title A BR */
+    TILE2(0x60,0x60,0x70,0x70,0x78,0x78,0x7c,0x7c,0x6c,0x6c,0x6e,0x6e,0x66,0x66,0x67,0x67), /* title N TL */
+    TILE2(0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18), /* title N TR */
+    TILE2(0x63,0x63,0x63,0x63,0x61,0x61,0x61,0x61,0x60,0x60,0x60,0x60,0x60,0x60,0x00,0x00), /* title N BL */
+    TILE2(0x18,0x18,0x98,0x98,0x98,0x98,0xd8,0xd8,0xf8,0xf8,0x78,0x78,0x38,0x38,0x00,0x00), /* title N BR */
+    TILE2(0x7f,0x7f,0x7f,0x7f,0x03,0x03,0x03,0x03,0x03,0x03,0x03,0x03,0x03,0x03,0x03,0x03), /* title I TL */
+    TILE2(0xf8,0xf8,0xf8,0xf8,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00), /* title I TR */
+    TILE2(0x03,0x03,0x03,0x03,0x03,0x03,0x03,0x03,0x03,0x03,0x7f,0x7f,0x7f,0x7f,0x00,0x00), /* title I BL */
+    TILE2(0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xf8,0xf8,0xf8,0xf8,0x00,0x00), /* title I BR */
+    TILE2(0x3f,0x3f,0x7f,0x7f,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60), /* title C TL */
+    TILE2(0xf8,0xf8,0xf8,0xf8,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00), /* title C TR */
+    TILE2(0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x7f,0x7f,0x3f,0x3f,0x00,0x00), /* title C BL */
+    TILE2(0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xf8,0xf8,0xf8,0xf8,0x00,0x00)  /* title C BR */
 };
 
 static uint8_t stage[SCREEN_TILES_H][SCREEN_TILES_W];
@@ -302,6 +342,7 @@ static uint8_t hud_dirty = 0;
 static uint8_t hud_second = 0xffu;
 static uint8_t enemy_count = 0;
 static uint8_t menu_tick = 0;
+static uint8_t title_boot_done = 0;
 static uint8_t how_page = 0;
 static uint8_t feedback_kind = FEEDBACK_NONE;
 static uint8_t feedback_timer = 0;
@@ -317,6 +358,8 @@ static int16_t player_y = 0;
 static int16_t player_vx = 0;
 static int16_t player_vy = 0;
 static uint8_t stomping = 0;
+static uint8_t stomp_ready = 1;
+static uint8_t stomp_chain = 0;
 static uint8_t invuln = 0;
 
 static uint8_t music_track = MUSIC_NONE;
@@ -790,12 +833,14 @@ static void init_sound(void) {
 
 static uint8_t glyph_for(char c) {
     if ((c >= 'A') && (c <= 'Z')) return (uint8_t)(c - 'A');
+    if ((c >= 'a') && (c <= 'z')) return (uint8_t)(c - 'a');
     if ((c >= '0') && (c <= '9')) return (uint8_t)(26 + (c - '0'));
     if (c == ':') return 37;
     if (c == '-') return 38;
     if (c == '.') return 39;
     if (c == '/') return 40;
     if (c == '!') return 41;
+    if (c == '@') return 42;
     return 36;
 }
 
@@ -1006,6 +1051,9 @@ static void set_spawn_px(uint8_t x, uint8_t y) {
     player_y = FIX(y);
     player_vx = 0;
     player_vy = FIX(-5);
+    stomping = 0;
+    stomp_ready = 1;
+    stomp_chain = 0;
 }
 
 static void add_column(uint8_t x, uint8_t y, uint8_t h, uint8_t tile) {
@@ -1031,6 +1079,20 @@ static void add_hazard_line(uint8_t x, uint8_t y, uint8_t w, uint8_t tile) {
             stage[y][x + i] = tile;
         }
     }
+}
+
+static void add_tile_if_empty(uint8_t x, uint8_t y, uint8_t tile) {
+    if ((x < SCREEN_TILES_W) && (y < SCREEN_TILES_H) && (stage[y][x] == T_EMPTY)) stage[y][x] = tile;
+}
+
+static void add_platform_if_empty(uint8_t x, uint8_t y, uint8_t w, uint8_t tile) {
+    uint8_t i;
+    for (i = 0; i < w; i++) add_tile_if_empty((uint8_t)(x + i), y, tile);
+}
+
+static void add_stomp_route(uint8_t x, uint8_t y, uint8_t w) {
+    add_platform_if_empty(x, y, w, T_ROCK);
+    if (y > 3u) add_coin_line(x, (uint8_t)(y - 1u), w);
 }
 
 static void place_marker_down(uint8_t x, uint8_t y) {
@@ -1092,6 +1154,8 @@ static void reset_common(void) {
     bubble = 0;
     invuln = 0;
     stomping = 0;
+    stomp_ready = 1;
+    stomp_chain = 0;
     feedback_kind = FEEDBACK_NONE;
     feedback_timer = 0;
     level_time = 0;
@@ -1125,6 +1189,82 @@ static void sprinkle_coins(uint8_t seed, uint8_t count) {
         x = (uint8_t)(2u + ((uint8_t)(seed + i * 5u) % 16u));
         y = (uint8_t)(4u + ((uint8_t)(seed + i * 3u) % 10u));
         if (stage[y][x] == T_EMPTY) stage[y][x] = T_COIN;
+    }
+}
+
+static void enrich_adventure_room(uint8_t world, uint8_t local) {
+    uint8_t lane;
+    uint8_t high_x;
+    uint8_t lower_x;
+    uint8_t high_y;
+    uint8_t lower_y;
+    uint8_t high_tile;
+    uint8_t lower_tile;
+    uint8_t rock_x;
+    uint8_t rock_y;
+
+    if ((world == 0u) && (local < 8u)) return;
+
+    lane = (uint8_t)(local & 3u);
+    high_x = (uint8_t)(3u + (local & 7u));
+    lower_x = (uint8_t)(11u + lane);
+    high_y = (uint8_t)(6u + (local & 1u));
+    lower_y = (uint8_t)(8u + ((local >> 1u) & 1u));
+    rock_x = (uint8_t)(2u + ((local + world) & 3u));
+    rock_y = (uint8_t)(9u + ((local >> 2u) & 1u));
+    high_tile = T_SOLID;
+    lower_tile = T_SOLID;
+
+    if (world == 0u) {
+        high_tile = T_CRACK;
+    } else if (world == 3u) {
+        high_tile = (local & 1u) ? T_CONV_R : T_CONV_L;
+        lower_tile = (local & 2u) ? T_CONV_L : T_CONV_R;
+    } else if (world >= 4u) {
+        high_tile = (local & 1u) ? T_CRACK : T_CONV_R;
+        lower_tile = (local & 2u) ? T_TOGGLE : T_CRACK;
+    }
+
+    add_tile_if_empty((uint8_t)(4u + lane), 5, T_COIN);
+    add_tile_if_empty((uint8_t)(8u + lane), 4, T_COIN);
+    add_tile_if_empty((uint8_t)(13u + lane), 5, T_COIN);
+    add_platform_if_empty(high_x, high_y, 3, high_tile);
+    add_coin_line((uint8_t)(high_x + 1u), (uint8_t)(high_y - 1u), 2);
+    add_platform_if_empty((uint8_t)(lower_x - 1u), lower_y, 3, lower_tile);
+
+    if (world == 0u) {
+        add_tile_if_empty(6, 15, T_SPRING);
+    } else if (world == 1u) {
+        add_platform_if_empty((uint8_t)(5u + lane), 10, 2, T_TOGGLE);
+    } else if (world == 2u) {
+        add_tile_if_empty((uint8_t)(3u + lane), 10, T_BUBBLE);
+        add_tile_if_empty((uint8_t)(15u - lane), 7, (local & 1u) ? T_FAN_L : T_FAN_R);
+    } else if (world == 3u) {
+        add_tile_if_empty((uint8_t)(5u + lane), 13, T_SPRING);
+    } else {
+        add_tile_if_empty((uint8_t)(3u + lane), 10, T_BUBBLE);
+        add_tile_if_empty((uint8_t)(15u - lane), 7, (local & 1u) ? T_FAN_L : T_FAN_R);
+    }
+
+    if (local >= 4u) add_stomp_route(rock_x, rock_y, (uint8_t)(2u + (local & 1u)));
+    if (local >= 12u) add_enemy((uint8_t)(high_x + 1u), (uint8_t)(high_y - 1u), (local & 1u) ? 1 : -1);
+
+    if (world == 1u) {
+        add_platform_if_empty((uint8_t)(3u + lane), 6, 3, T_TOGGLE);
+        add_coin_line((uint8_t)(3u + lane), 5, 3);
+        if (local >= 8u) add_tile_if_empty((uint8_t)(15u - lane), 11, T_SWITCH);
+    } else if (world == 2u) {
+        add_tile_if_empty((uint8_t)(7u + lane), 6, T_BUBBLE);
+        add_tile_if_empty((uint8_t)(11u - lane), 13, (local & 1u) ? T_FAN_L : T_FAN_R);
+        if (local >= 8u) add_hazard_line((uint8_t)(4u + lane), 15, 2, T_WATER);
+    } else if (world == 3u) {
+        add_platform_if_empty((uint8_t)(2u + lane), 6, 3, (local & 1u) ? T_CONV_R : T_CONV_L);
+        add_coin_line((uint8_t)(2u + lane), 5, 3);
+        if (local >= 8u) add_stomp_route((uint8_t)(14u - lane), 11, 2);
+    } else if (world >= 4u) {
+        add_stomp_route((uint8_t)(15u - lane), 12, 2);
+        add_tile_if_empty((uint8_t)(6u + lane), 7, T_BUBBLE);
+        if (local >= 8u) add_hazard_line((uint8_t)(3u + lane), 15, 2, (local & 1u) ? T_SPIKE : T_WATER);
     }
 }
 
@@ -1427,6 +1567,7 @@ static void generate_adventure(uint8_t level) {
     } else {
         build_mixed_room(local);
     }
+    enrich_adventure_room(world, local);
     soften_exit();
 }
 
@@ -1436,6 +1577,9 @@ static void generate_panic(uint16_t depth) {
     uint8_t danger;
     uint8_t x;
     uint8_t y;
+    uint8_t battery_x;
+    uint8_t battery_y;
+    uint8_t support_x;
     seed = (uint16_t)(depth * 97u + 31u);
     danger = (uint8_t)(depth / 10u);
     if (danger > 5u) danger = 5u;
@@ -1443,6 +1587,7 @@ static void generate_panic(uint16_t depth) {
     set_spawn_px(18, 92);
     set_room_switch((uint8_t)((depth & 1u) == 0u));
     add_platform(2, 14, 4, T_SOLID);
+    add_platform(13, 14, 3, (depth & 1u) ? T_CONV_L : T_CONV_R);
 
     for (i = 0; i < 4u; i++) {
         seed = rng_step(seed);
@@ -1452,16 +1597,23 @@ static void generate_panic(uint16_t depth) {
         add_platform(x, y, (uint8_t)(3u + (seed % 4u)), (i == 2u) ? T_TOGGLE : ((depth & 3u) == i) ? T_CRACK : T_SOLID);
     }
 
-    place_battery((uint8_t)(5u + (depth % 10u)), (uint8_t)(4u + (depth & 1u)));
+    battery_x = (uint8_t)(5u + (depth % 10u));
+    battery_y = (uint8_t)(4u + (depth & 1u));
+    support_x = (uint8_t)(battery_x - 1u);
+    place_battery(battery_x, battery_y);
+    add_platform_if_empty(support_x, (uint8_t)(battery_y + 1u), 3, (depth & 2u) ? T_CRACK : T_SOLID);
     stage[13][4] = T_SWITCH;
     stage[8][15] = (depth & 1u) ? T_FAN_L : T_FAN_R;
     stage[12][6] = T_BUBBLE;
+    if (danger >= 1u) add_stomp_route((uint8_t)(9u + (depth & 3u)), 10, 2);
+    if (danger >= 3u) add_platform_if_empty((uint8_t)(4u + (depth & 3u)), 7, 2, T_CONV_R);
     sprinkle_coins((uint8_t)seed, (uint8_t)(4u + danger));
 
     for (i = 0; i < (uint8_t)(3u + danger); i++) {
         seed = rng_step(seed);
         x = (uint8_t)(6u + (seed % 10u));
         y = (uint8_t)(16u - (i & 1u));
+        if (x > 14u) x = 14u;
         if (stage[y][x] == T_EMPTY) stage[y][x] = ((i + depth) & 1u) ? T_SPIKE : T_WATER;
     }
     for (i = 0; i < (uint8_t)(1u + (danger / 2u)); i++) {
@@ -1470,6 +1622,7 @@ static void generate_panic(uint16_t depth) {
     if (danger >= 2u) {
         add_moving_platform((uint8_t)(7u + (depth & 3u)), 7, 3, 1);
     }
+    soften_exit();
 }
 
 static uint8_t music_track_for_room(void) {
@@ -1532,6 +1685,18 @@ static void mark_hud_dirty(void) {
     hud_dirty = 1;
 }
 
+static void add_coin_bonus(uint8_t amount) {
+    if (amount == 0u) return;
+    if (coins >= COIN_LIMIT) {
+        coins = COIN_LIMIT;
+    } else if (amount > (uint8_t)(COIN_LIMIT - coins)) {
+        coins = COIN_LIMIT;
+    } else {
+        coins = (uint8_t)(coins + amount);
+    }
+    mark_hud_dirty();
+}
+
 static void start_feedback(uint8_t kind, uint8_t timer) {
     feedback_kind = kind;
     feedback_timer = timer;
@@ -1541,8 +1706,7 @@ static void start_feedback(uint8_t kind, uint8_t timer) {
 static void emit_game_event(uint8_t event) {
     music_sfx_event(event);
     if (event == EVENT_COIN) {
-        coins++;
-        mark_hud_dirty();
+        add_coin_bonus(1u);
     } else if (event == EVENT_BATTERY) {
         if (!battery) battery = 1;
         mark_hud_dirty();
@@ -1555,8 +1719,7 @@ static void emit_game_event(uint8_t event) {
         player_vy = FIX(-5);
         start_feedback(FEEDBACK_SHIELD, 36);
     } else if (event == EVENT_STOMP) {
-        coins++;
-        mark_hud_dirty();
+        add_coin_bonus(stomp_chain ? stomp_chain : 1u);
         if (!feedback_timer) start_feedback(FEEDBACK_STOMP, 18);
     } else if (event == EVENT_CRACK) {
         if (!feedback_timer) start_feedback(FEEDBACK_CRACK, 18);
@@ -1614,6 +1777,7 @@ static void trigger_switch(void) {
 
 static void hurt_player(void) {
     if (invuln) return;
+    stomp_chain = 0;
     if (bubble) {
         emit_game_event(EVENT_SHIELD);
         return;
@@ -1630,6 +1794,7 @@ static void hurt_player(void) {
 
 static void complete_level(void) {
     progress_record_clear();
+    stomp_chain = 0;
     state = STATE_CLEAR;
     music_start(MUSIC_CLEAR);
     clear_wait = 24;
@@ -1657,6 +1822,11 @@ static uint8_t player_center_tile(void) {
 
 static uint8_t player_overlaps_exit(void) {
     return (uint8_t)(player_center_tile() == T_EXIT);
+}
+
+static void clamp_player_vx(void) {
+    if (player_vx > PLAYER_MAX_VX) player_vx = PLAYER_MAX_VX;
+    if (player_vx < -PLAYER_MAX_VX) player_vx = -PLAYER_MAX_VX;
 }
 
 static void collect_tiles(void) {
@@ -1704,13 +1874,20 @@ static void do_bounce(uint8_t tile, uint8_t joy) {
     }
     if (tile == T_CONV_L) player_vx -= FIX(1);
     if (tile == T_CONV_R) player_vx += FIX(1);
-    if ((joy & J_B) && (joy & J_LEFT)) player_vx -= PLAYER_AIR_KICK;
-    if ((joy & J_B) && (joy & J_RIGHT)) player_vx += PLAYER_AIR_KICK;
+    if (joy & J_LEFT) player_vx -= PLAYER_AIR_KICK;
+    if (joy & J_RIGHT) player_vx += PLAYER_AIR_KICK;
+    clamp_player_vx();
     stomping = 0;
+    stomp_ready = 1;
+    stomp_chain = 0;
 }
 
-static void break_crack_at(uint8_t tx, uint8_t ty) {
-    if (stage_tile(tx, ty) == T_CRACK) put_stage_tile(tx, ty, T_EMPTY);
+static uint8_t is_stomp_breakable(uint8_t tile) {
+    return (uint8_t)((tile == T_CRACK) || (tile == T_ROCK));
+}
+
+static void break_stomp_block_at(uint8_t tx, uint8_t ty) {
+    if (is_stomp_breakable(stage_tile(tx, ty))) put_stage_tile(tx, ty, T_EMPTY);
 }
 
 static void resolve_horizontal(void) {
@@ -1769,12 +1946,12 @@ static void resolve_vertical(uint8_t joy) {
         tx_r = point_tile_x(right);
         ty = point_tile_y(foot);
         broke = 0;
-        if (stomping && (tile_l == T_CRACK)) {
-            break_crack_at(tx_l, ty);
+        if (stomping && is_stomp_breakable(tile_l)) {
+            break_stomp_block_at(tx_l, ty);
             broke = 1;
         }
-        if (stomping && (tile_r == T_CRACK)) {
-            break_crack_at(tx_r, ty);
+        if (stomping && is_stomp_breakable(tile_r)) {
+            break_stomp_block_at(tx_r, ty);
             broke = 1;
         }
         if (broke) {
@@ -1843,8 +2020,10 @@ static void update_enemies(void) {
         if (rect_overlap(player_x, player_y, PLAYER_W, PLAYER_H, e->x, e->y, 8, 8)) {
             if ((player_vy > 0) && ((player_y + FIX(PLAYER_H - 3)) < e->y)) {
                 e->alive = 0;
-                player_vy = BOUNCE_NORMAL;
+                if (stomp_chain < 9u) stomp_chain++;
+                player_vy = (stomp_chain >= 2u) ? BOUNCE_SPRING : BOUNCE_NORMAL;
                 stomping = 0;
+                stomp_ready = 1;
                 emit_game_event(EVENT_STOMP);
             } else {
                 hurt_player();
@@ -1882,19 +2061,20 @@ static void update_moving_platform(void) {
     }
 }
 
-static void apply_player_input(uint8_t joy) {
-    if (joy & J_LEFT) player_vx -= (joy & J_B) ? PLAYER_FAST_ACCEL : PLAYER_ACCEL;
-    if (joy & J_RIGHT) player_vx += (joy & J_B) ? PLAYER_FAST_ACCEL : PLAYER_ACCEL;
+static void apply_player_input(uint8_t joy, uint8_t pressed) {
+    if (joy & J_LEFT) player_vx -= PLAYER_ACCEL;
+    if (joy & J_RIGHT) player_vx += PLAYER_ACCEL;
     if (!(joy & (J_LEFT | J_RIGHT))) {
-        if (player_vx > 0) player_vx--;
-        else if (player_vx < 0) player_vx++;
+        if (player_vx > PLAYER_FRICTION) player_vx -= PLAYER_FRICTION;
+        else if (player_vx < -PLAYER_FRICTION) player_vx += PLAYER_FRICTION;
+        else player_vx = 0;
     }
-    if (player_vx > PLAYER_MAX_VX) player_vx = PLAYER_MAX_VX;
-    if (player_vx < -PLAYER_MAX_VX) player_vx = -PLAYER_MAX_VX;
+    clamp_player_vx();
 
-    if ((joy & J_A) && (player_vy > FIX(-2))) {
+    if ((pressed & J_A) && stomp_ready && (player_vy > FIX(-2))) {
         player_vy = FIX(5);
         stomping = 1;
+        stomp_ready = 0;
     }
 }
 
@@ -1904,6 +2084,7 @@ static void apply_player_world_forces(void) {
     center_tile = player_center_tile();
     if (center_tile == T_FAN_L) player_vx -= 3;
     if (center_tile == T_FAN_R) player_vx += 3;
+    clamp_player_vx();
     gravity = (level_world == 2u) ? 3 : 4;
     if (stomping) gravity = 6;
     player_vy = (int16_t)(player_vy + gravity);
@@ -1917,11 +2098,11 @@ static void move_player_and_resolve(uint8_t joy) {
     resolve_vertical(joy);
 }
 
-static void update_player(uint8_t joy) {
+static void update_player(uint8_t joy, uint8_t pressed) {
     if (invuln) invuln--;
     if (switch_cooldown) switch_cooldown--;
 
-    apply_player_input(joy);
+    apply_player_input(joy, pressed);
     apply_player_world_forces();
     move_player_and_resolve(joy);
 
@@ -1941,7 +2122,7 @@ static void draw_player(void) {
         move_sprite(1, 0, 0);
     } else {
         move_sprite(0, px, py);
-        move_sprite(1, 0, 0);
+        move_sprite(1, px, (uint8_t)(py + 8u));
     }
     if (bubble) move_sprite(10, px, py);
     else move_sprite(10, 0, 0);
@@ -1967,25 +2148,180 @@ static void draw_title_demo(void) {
     move_sprite(1, 0, 0);
 }
 
+static void draw_big_title_char(uint8_t x, uint8_t y, char c, uint8_t tile) {
+    const char *rows;
+    uint8_t row;
+    uint8_t col;
+    rows = "   "
+           "   "
+           "   "
+           "   ";
+    if (c == 'P') {
+        rows = "## "
+               "# #"
+               "## "
+               "#  ";
+    } else if (c == 'O') {
+        rows = "###"
+               "# #"
+               "# #"
+               "###";
+    } else if (c == 'G') {
+        rows = "###"
+               "#  "
+               "# #"
+               "###";
+    } else if (c == 'A') {
+        rows = " # "
+               "###"
+               "# #"
+               "# #";
+    } else if (c == 'N') {
+        rows = "# #"
+               "###"
+               "###"
+               "# #";
+    } else if (c == 'I') {
+        rows = "###"
+               " # "
+               " # "
+               "###";
+    } else if (c == 'C') {
+        rows = "###"
+               "#  "
+               "#  "
+               "###";
+    }
+
+    for (row = 0; row < 4u; row++) {
+        for (col = 0; col < 3u; col++) {
+            if (rows[(uint8_t)(row * 3u + col)] != ' ') draw_tile_icon((uint8_t)(x + col), (uint8_t)(y + row), tile);
+        }
+    }
+}
+
+static void draw_big_title_word(uint8_t x, uint8_t y, const char *text, uint8_t tile) {
+    while ((*text) && (x < SCREEN_TILES_W)) {
+        if (*text == ' ') x = (uint8_t)(x + 2u);
+        else {
+            draw_big_title_char(x, y, *text, tile);
+            x = (uint8_t)(x + 4u);
+        }
+        text++;
+    }
+}
+
+static void draw_big_title_word_tight(uint8_t x, uint8_t y, const char *text, uint8_t tile) {
+    while ((*text) && (x < SCREEN_TILES_W)) {
+        if (*text == ' ') x = (uint8_t)(x + 1u);
+        else {
+            draw_big_title_char(x, y, *text, tile);
+            x = (uint8_t)(x + 3u);
+        }
+        text++;
+    }
+}
+
+static void draw_title_sign_frame(void) {
+    uint8_t y;
+    draw_tile_run(8, 1, 4, T_TITLE_SHADOW);
+    draw_tile_run(9, 1, 2, T_TITLE_FILL);
+    draw_tile_run(1, 2, 18, T_TITLE_FILL);
+    draw_tile_run(1, 10, 18, T_TITLE_FILL);
+    for (y = 3; y < 10u; y++) {
+        draw_tile_icon(1, y, T_TITLE_FILL);
+        draw_tile_icon(18, y, T_TITLE_FILL);
+    }
+}
+
+static void draw_title_mascot(void) {
+    uint8_t bob;
+    bob = (menu_tick & 16u) ? 0u : 2u;
+    move_sprite(0, 31, (uint8_t)(36u - bob));
+    move_sprite(1, 0, 0);
+}
+
+static uint8_t title_glyph_index(char c) {
+    if (c == 'P') return 0;
+    if (c == 'O') return 1;
+    if (c == 'G') return 2;
+    if (c == 'A') return 3;
+    if (c == 'N') return 4;
+    if (c == 'I') return 5;
+    if (c == 'C') return 6;
+    return 0;
+}
+
+static void draw_title_glyph(uint8_t x, uint8_t y, char c) {
+    uint8_t tile;
+    tile = (uint8_t)(TITLE_FONT_BASE + (uint8_t)(title_glyph_index(c) * 4u));
+    scratch[0] = tile;
+    scratch[1] = (uint8_t)(tile + 1u);
+    set_bkg_tiles(x, y, 2, 1, scratch);
+    scratch[0] = (uint8_t)(tile + 2u);
+    scratch[1] = (uint8_t)(tile + 3u);
+    set_bkg_tiles(x, (uint8_t)(y + 1u), 2, 1, scratch);
+}
+
+static void draw_title_word(uint8_t x, uint8_t y, const char *text) {
+    while ((*text) && (x < SCREEN_TILES_W)) {
+        if (*text == ' ') x = (uint8_t)(x + 1u);
+        else {
+            draw_title_glyph(x, y, *text);
+            x = (uint8_t)(x + 3u);
+        }
+        text++;
+    }
+}
+
+static void draw_title_boot(void) {
+    uint8_t progress;
+    uint8_t scan_x;
+    progress = (uint8_t)(menu_tick / 5u);
+    if (progress > 12u) progress = 12u;
+    scan_x = (uint8_t)(1u + ((menu_tick >> 1u) % 18u));
+
+    draw_tile_run(4, 8, 12, T_TOGGLE_OFF);
+    if (progress) draw_tile_run(4, 8, progress, T_SOLID);
+    draw_tile_run(1, 15, 18, T_EMPTY);
+    draw_tile_icon(scan_x, 15, (menu_tick & 2u) ? T_ARROW_R : T_ARROW_D);
+
+    if (menu_tick > 10u) draw_text(5, 4, "VIDEO OK");
+    if (menu_tick > 25u) draw_text(5, 5, "SRAM OK");
+    if (menu_tick > 40u) draw_text(5, 6, "INPUT OK");
+    if (menu_tick > 55u) draw_text(6, 10, "TITLE READY");
+}
+
+static void draw_title_ready(void) {
+    fill_screen(T_EMPTY);
+    draw_menu_rule(0);
+    draw_menu_rule(17);
+
+    draw_title_sign_frame();
+    draw_title_word(4, 4, "POGO");
+    draw_title_word(3, 7, "PANIC");
+    draw_tile_run(0, 11, 20, T_TOGGLE_OFF);
+
+    draw_text(3, 14, "B HOW TO PLAY");
+    draw_text(2, 16, "MADE BY @bsunter");
+}
+
+static void draw_title_ready_anim(void) {
+    if (menu_tick & 32u) draw_text(6, 13, "A START");
+    else draw_tile_run(6, 13, 7, T_EMPTY);
+}
+
 static void show_title(void) {
     hide_sprites();
     music_start(MUSIC_TITLE);
     menu_tick = 0;
+    title_boot_done = 0;
     fill_screen(T_EMPTY);
     draw_menu_rule(0);
     draw_menu_rule(17);
-    draw_text(2, 2, "POCKET POGO");
-    draw_text(5, 4, "PANIC");
-    draw_text(2, 6, "STOMP");
-    draw_tile_icon(8, 6, T_BATTERY);
-    draw_tile_icon(10, 6, T_ARROW_R);
-    draw_tile_icon(12, 6, T_EXIT);
-    draw_text(14, 6, "DOOR");
-    draw_tile_run(8, 10, 4, T_SOLID);
-    draw_text(5, 12, "A START");
-    draw_text(3, 14, "B HOW TO PLAY");
-    draw_text(2, 16, "DMG ARCADE ROM");
-    draw_title_demo();
+    draw_text(2, 2, "POGO PANIC BOOT");
+    draw_text(4, 8, "------------");
+    draw_text(4, 12, "DMG ARCADE ROM");
 }
 
 static uint8_t level_limit_for_mode(void) {
@@ -2080,7 +2416,7 @@ static void show_howto(void) {
         draw_tile_icon(2, 4, T_SPRING);
         draw_text(4, 4, "SPRINGS BOOST");
         draw_tile_icon(2, 6, T_CRACK);
-        draw_text(4, 6, "STOMP CRACKS");
+        draw_text(4, 6, "STOMP BREAKS");
         draw_tile_icon(2, 8, T_SWITCH);
         draw_text(4, 8, "SWITCH PLATFORMS");
         draw_tile_icon(2, 10, T_FAN_R);
@@ -2094,7 +2430,16 @@ static void show_howto(void) {
 
 static void update_title(uint8_t pressed) {
     menu_tick++;
-    draw_title_demo();
+    if (!title_boot_done) {
+        draw_title_boot();
+        if (menu_tick >= 72u) {
+            title_boot_done = 1;
+            menu_tick = 0;
+            draw_title_ready();
+        }
+    } else {
+        draw_title_ready_anim();
+    }
     if (pressed & J_B) {
         how_page = 0;
         state = STATE_HOWTO;
@@ -2198,6 +2543,7 @@ static void init_video(void) {
     DISPLAY_OFF;
     set_bkg_data(0, (uint8_t)(sizeof(bg_tiles) / 16u), bg_tiles);
     set_bkg_data(FONT_BASE, FONT_COUNT, font_tiles);
+    set_bkg_data(TITLE_FONT_BASE, (uint8_t)(sizeof(title_font_tiles) / 16u), title_font_tiles);
     set_sprite_data(SPRITE_BASE, (uint8_t)(sizeof(sprite_tiles) / 16u), sprite_tiles);
     set_sprite_tile(0, SPRITE_BASE);
     set_sprite_tile(1, (uint8_t)(SPRITE_BASE + 1u));
@@ -2239,7 +2585,7 @@ void main(void) {
             } else {
                 level_time++;
                 update_moving_platform();
-                update_player(joy);
+                update_player(joy, pressed);
                 if (state == STATE_PLAY) {
                     update_enemies();
                     draw_player();

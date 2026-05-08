@@ -1,6 +1,6 @@
 # Pocket Pogo Panic
 
-A tiny Game Boy arcade platformer built with GBDK-2020. The player is always bouncing on a pogo stick; steer left/right, stomp with A, use B to tilt/short-hop, and grab the golden battery before reaching the exit.
+A tiny Game Boy arcade platformer built with GBDK-2020. The player is always bouncing on a pogo stick; steer left/right, stomp with A to break cracked blocks and rocks, use B to tilt/short-hop, and grab the golden battery before reaching the exit.
 
 ## Build
 
@@ -25,7 +25,7 @@ Open `http://127.0.0.1:5173/`.
 Controls:
 
 - Arrow Left / Arrow Right: steer
-- A: stomp
+- A: stomp / break cracked blocks and rocks
 - B: tilt / short hop
 - Enter: start / pause
 

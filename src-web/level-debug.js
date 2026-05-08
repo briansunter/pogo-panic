@@ -126,6 +126,21 @@ function addHazardLine(room, x, y, w, tile) {
   }
 }
 
+function addTileIfEmpty(room, x, y, tile) {
+  if (x < SCREEN_TILES_W && y < SCREEN_TILES_H && room.stage[y][x] === TILE.EMPTY) {
+    room.stage[y][x] = tile;
+  }
+}
+
+function addPlatformIfEmpty(room, x, y, w, tile) {
+  for (let i = 0; i < w; i += 1) addTileIfEmpty(room, x + i, y, tile);
+}
+
+function addStompRoute(room, x, y, w) {
+  addPlatformIfEmpty(room, x, y, w, TILE.ROCK);
+  if (y > 3) addCoinLine(room, x, y - 1, w);
+}
+
 function addEnemy(room, tx, ty, vx) {
   room.enemies.push({ tx, ty, vx });
 }
@@ -173,6 +188,72 @@ function softenExit(room) {
   clearIfDanger(room, 17, 15);
   clearIfDanger(room, 18, 15);
   placeMarkerDown(room, 18, 16);
+}
+
+function enrichAdventureRoom(room, world, local) {
+  if (world === 0 && local < 8) return;
+
+  const lane = local & 3;
+  const highX = 3 + (local & 7);
+  const lowerX = 11 + lane;
+  const highY = 6 + (local & 1);
+  const lowerY = 8 + ((local >> 1) & 1);
+  const rockX = 2 + ((local + world) & 3);
+  const rockY = 9 + ((local >> 2) & 1);
+  let highTile = TILE.SOLID;
+  let lowerTile = TILE.SOLID;
+
+  if (world === 0) {
+    highTile = TILE.CRACK;
+  } else if (world === 3) {
+    highTile = local & 1 ? TILE.CONV_R : TILE.CONV_L;
+    lowerTile = local & 2 ? TILE.CONV_L : TILE.CONV_R;
+  } else if (world >= 4) {
+    highTile = local & 1 ? TILE.CRACK : TILE.CONV_R;
+    lowerTile = local & 2 ? TILE.TOGGLE : TILE.CRACK;
+  }
+
+  addTileIfEmpty(room, 4 + lane, 5, TILE.COIN);
+  addTileIfEmpty(room, 8 + lane, 4, TILE.COIN);
+  addTileIfEmpty(room, 13 + lane, 5, TILE.COIN);
+  addPlatformIfEmpty(room, highX, highY, 3, highTile);
+  addCoinLine(room, highX + 1, highY - 1, 2);
+  addPlatformIfEmpty(room, lowerX - 1, lowerY, 3, lowerTile);
+
+  if (world === 0) {
+    addTileIfEmpty(room, 6, 15, TILE.SPRING);
+  } else if (world === 1) {
+    addPlatformIfEmpty(room, 5 + lane, 10, 2, TILE.TOGGLE);
+  } else if (world === 2) {
+    addTileIfEmpty(room, 3 + lane, 10, TILE.BUBBLE);
+    addTileIfEmpty(room, 15 - lane, 7, local & 1 ? TILE.FAN_L : TILE.FAN_R);
+  } else if (world === 3) {
+    addTileIfEmpty(room, 5 + lane, 13, TILE.SPRING);
+  } else {
+    addTileIfEmpty(room, 3 + lane, 10, TILE.BUBBLE);
+    addTileIfEmpty(room, 15 - lane, 7, local & 1 ? TILE.FAN_L : TILE.FAN_R);
+  }
+
+  if (local >= 4) addStompRoute(room, rockX, rockY, 2 + (local & 1));
+  if (local >= 12) addEnemy(room, highX + 1, highY - 1, local & 1 ? 1 : -1);
+
+  if (world === 1) {
+    addPlatformIfEmpty(room, 3 + lane, 6, 3, TILE.TOGGLE);
+    addCoinLine(room, 3 + lane, 5, 3);
+    if (local >= 8) addTileIfEmpty(room, 15 - lane, 11, TILE.SWITCH);
+  } else if (world === 2) {
+    addTileIfEmpty(room, 7 + lane, 6, TILE.BUBBLE);
+    addTileIfEmpty(room, 11 - lane, 13, local & 1 ? TILE.FAN_L : TILE.FAN_R);
+    if (local >= 8) addHazardLine(room, 4 + lane, 15, 2, TILE.WATER);
+  } else if (world === 3) {
+    addPlatformIfEmpty(room, 2 + lane, 6, 3, local & 1 ? TILE.CONV_R : TILE.CONV_L);
+    addCoinLine(room, 2 + lane, 5, 3);
+    if (local >= 8) addStompRoute(room, 14 - lane, 11, 2);
+  } else if (world >= 4) {
+    addStompRoute(room, 15 - lane, 12, 2);
+    addTileIfEmpty(room, 6 + lane, 7, TILE.BUBBLE);
+    if (local >= 8) addHazardLine(room, 3 + lane, 15, 2, local & 1 ? TILE.SPIKE : TILE.WATER);
+  }
 }
 
 function buildTutorialRoom(room, local) {
@@ -462,6 +543,7 @@ export function generateAdventureLevel(level) {
   else if (world === 3) buildMotionRoom(room, local);
   else buildMixedRoom(room, local);
 
+  enrichAdventureRoom(room, world, local);
   softenExit(room);
   return room;
 }
@@ -562,6 +644,23 @@ function drawTile(ctx, tile, x, y, switchOn = true) {
     ctx.fillRect(x + 6, y + 1, 1, 5);
     ctx.fillRect(x + 3, y + 4, 1, 1);
     ctx.fillRect(x + 5, y + 3, 1, 1);
+    return;
+  }
+  if (tile === TILE.ROCK) {
+    ctx.fillStyle = PALETTE.ink;
+    ctx.beginPath();
+    ctx.moveTo(x + 3, y + 1);
+    ctx.lineTo(x + 6, y + 2);
+    ctx.lineTo(x + 7, y + 5);
+    ctx.lineTo(x + 5, y + 7);
+    ctx.lineTo(x + 2, y + 7);
+    ctx.lineTo(x + 1, y + 4);
+    ctx.fill();
+    ctx.fillStyle = PALETTE.dark;
+    ctx.fillRect(x + 3, y + 2, 3, 4);
+    ctx.fillStyle = PALETTE.light;
+    ctx.fillRect(x + 3, y + 2, 2, 1);
+    ctx.fillRect(x + 2, y + 4, 1, 1);
     return;
   }
   if (tile === TILE.SPRING) {
@@ -730,7 +829,17 @@ function summarizeRoom(room) {
     for (const tile of row) counts.set(tile, (counts.get(tile) || 0) + 1);
   }
   const pieces = [];
-  for (const tile of [TILE.SPRING, TILE.SPIKE, TILE.WATER, TILE.TOGGLE, TILE.CONV_R, TILE.CONV_L, TILE.FAN_R, TILE.FAN_L]) {
+  for (const tile of [
+    TILE.SPRING,
+    TILE.ROCK,
+    TILE.SPIKE,
+    TILE.WATER,
+    TILE.TOGGLE,
+    TILE.CONV_R,
+    TILE.CONV_L,
+    TILE.FAN_R,
+    TILE.FAN_L
+  ]) {
     const count = counts.get(tile) || 0;
     if (count) pieces.push(`${TILE_NAMES.get(tile)} ${count}`);
   }

@@ -36,6 +36,8 @@ test("source advertises the complete adventure and mode set", () => {
   assert.match(source, /T_FAN_R/);
   assert.match(source, /T_CONV_R/);
   assert.match(source, /T_BUBBLE/);
+  assert.match(source, /MADE BY/);
+  assert.match(source, /@bsunter/);
 });
 
 test("web build output does not overwrite ROM artifacts", () => {
