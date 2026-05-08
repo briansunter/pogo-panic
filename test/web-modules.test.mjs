@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { createCanvasScreen, createPocketPogoRunner } from "../src-web/emulator-runner.js";
 import { bindDirectionalPads, bindKeyboardControls, bindVirtualButtons } from "../src-web/input.js";
-import { generateAdventureLevel, generateAdventureLevels, LEVEL_COUNT, TILE } from "../src-web/level-debug.js";
+import { generateAdventureLevel, generateAdventureLevels, LEVEL_COUNT, TILE, TILE_PX } from "../src-web/level-debug.js";
 import { base64ToBuffer, bufferToBase64, createSaveStore } from "../src-web/save-store.js";
 
 function memoryStorage(initial = {}) {
@@ -162,6 +162,12 @@ test("bindDirectionalPads supports press-and-slide direction control", () => {
     }
   });
 
+  const hover = event(105, 70);
+  events.get("pointermove")(hover);
+  assert.equal(hover.prevented, false);
+  assert.equal(input.isPressingRight, false);
+  assert.equal(classStates.size, 0);
+
   const right = event(105, 70);
   events.get("pointerdown")(right);
   assert.equal(right.prevented, true);
@@ -212,18 +218,23 @@ test("bindKeyboardControls maps keyboard state to emulator input and can detach"
     }
   });
 
-  const pressA = event("KeyA");
+  const pressA = event("KeyX");
   events.get("keydown")(pressA);
   assert.equal(pressA.prevented, true);
   assert.equal(input.isPressingA, true);
 
-  events.get("keyup")(event("KeyA"));
+  events.get("keyup")(event("KeyX"));
   assert.equal(input.isPressingA, false);
 
-  events.get("keydown")(event("a"));
+  events.get("keydown")(event("x"));
   assert.equal(input.isPressingA, true);
-  events.get("keyup")(event("a"));
+  events.get("keyup")(event("x"));
   assert.equal(input.isPressingA, false);
+
+  events.get("keydown")(event("KeyZ"));
+  assert.equal(input.isPressingB, true);
+  events.get("keyup")(event("KeyZ"));
+  assert.equal(input.isPressingB, false);
 
   events.get("keydown")(event("Enter"));
   assert.equal(input.isPressingStart, true);
@@ -354,13 +365,154 @@ test("Pocket Pogo runner owns emulator boot ordering behind one interface", asyn
   assert.deepEqual(calls.at(-1), ["render", "frame"]);
 });
 
+const AUDIT_SOLIDS = new Set([
+  TILE.SOLID,
+  TILE.CRACK,
+  TILE.SPRING,
+  TILE.SWITCH,
+  TILE.CONV_L,
+  TILE.CONV_R,
+  TILE.MOVING,
+  TILE.ROCK,
+  TILE.WALL
+]);
+
+function auditSolid(tile, switchOn) {
+  if (tile === TILE.TOGGLE) return switchOn;
+  return AUDIT_SOLIDS.has(tile);
+}
+
+function auditDanger(tile) {
+  return tile === TILE.SPIKE || tile === TILE.WATER;
+}
+
+function auditOneTilePocket(room, x, y, switchOn) {
+  const tile = room.stage[y][x];
+  if (auditDanger(tile) || auditSolid(tile, switchOn)) return false;
+  if (tile === TILE.EXIT) return false;
+  return auditSolid(room.stage[y + 1][x], switchOn) &&
+    auditSolid(room.stage[y][x - 1], switchOn) &&
+    auditSolid(room.stage[y][x + 1], switchOn);
+}
+
+function auditSurface(room, x, supportY, switchOn) {
+  if (x <= 0 || x >= 19 || supportY <= 2 || supportY > 17) return false;
+  if (!auditSolid(room.stage[supportY][x], switchOn)) return false;
+  const headTile = room.stage[supportY - 1][x];
+  return !auditSolid(headTile, switchOn) && !auditDanger(headTile);
+}
+
+function auditKey(node) {
+  return `${node.x},${node.y},${node.switchOn ? 1 : 0}`;
+}
+
+function auditNode(key) {
+  const [x, y, switchFlag] = key.split(",").map(Number);
+  return { x, y, switchOn: switchFlag === 1 };
+}
+
+function auditLand(room, x, y, switchOn) {
+  const tile = room.stage[y][x];
+  return { x, y, switchOn: tile === TILE.SWITCH ? !switchOn : switchOn };
+}
+
+function auditStartNodes(room) {
+  const spawnX = Math.floor(room.spawn.x / TILE_PX);
+  const spawnFootY = Math.floor((room.spawn.y + TILE_PX) / TILE_PX);
+  const nodes = [];
+
+  for (let dy = 0; dy <= 7; dy += 1) {
+    for (let dx = -2; dx <= 2; dx += 1) {
+      const x = spawnX + dx;
+      const y = spawnFootY + dy;
+      if (auditSurface(room, x, y, room.switchOn)) nodes.push(auditLand(room, x, y, room.switchOn));
+    }
+    if (nodes.length) return nodes;
+  }
+
+  return nodes;
+}
+
+function auditTargetNodes(room, targetTile) {
+  const candidates = [];
+
+  for (let y = 3; y < room.stage.length - 1; y += 1) {
+    for (let x = 1; x < room.stage[y].length - 1; x += 1) {
+      if (room.stage[y][x] !== targetTile) continue;
+
+      for (const switchOn of [false, true]) {
+        for (let sx = x - 1; sx <= x + 1; sx += 1) {
+          for (let sy = y + 1; sy <= Math.min(17, y + 4); sy += 1) {
+            if (auditSurface(room, sx, sy, switchOn)) candidates.push(auditKey(auditLand(room, sx, sy, switchOn)));
+          }
+        }
+      }
+    }
+  }
+
+  return new Set(candidates);
+}
+
+function auditCanMove(room, from, to) {
+  const dx = Math.abs(to.x - from.x);
+  const rise = from.y - to.y;
+  const fall = to.y - from.y;
+  const fromTile = room.stage[from.y][from.x];
+  const spring = fromTile === TILE.SPRING;
+  const maxRise = spring ? 7 : 4;
+  const maxDx = spring ? 8 : 7;
+
+  if (dx === 0 && rise === 0) return false;
+  if (rise > 0 && spring) return rise <= maxRise && dx <= maxDx;
+  if (rise > 0) return rise <= maxRise && dx <= Math.max(3, maxDx - Math.max(0, rise - 2));
+  if (fall >= 0) return dx <= maxDx + 2;
+  return false;
+}
+
+function auditNeighbors(room, node) {
+  const neighbors = [];
+
+  for (let y = 3; y <= 17; y += 1) {
+    for (let x = 1; x < 19; x += 1) {
+      if (!auditSurface(room, x, y, node.switchOn)) continue;
+      if (auditCanMove(room, node, { x, y })) neighbors.push(auditLand(room, x, y, node.switchOn));
+    }
+  }
+
+  return neighbors;
+}
+
+function auditFlood(room, starts) {
+  const queue = [...starts];
+  const seen = new Set(queue.map(auditKey));
+
+  for (let index = 0; index < queue.length; index += 1) {
+    for (const next of auditNeighbors(room, queue[index])) {
+      const key = auditKey(next);
+      if (!seen.has(key)) {
+        seen.add(key);
+        queue.push(next);
+      }
+    }
+  }
+
+  return seen;
+}
+
+function auditIntersects(seen, targets) {
+  for (const key of targets) {
+    if (seen.has(key)) return true;
+  }
+  return false;
+}
+
 test("debug level generator exposes all adventure rooms with goals", () => {
   const levels = generateAdventureLevels();
   assert.equal(levels.length, LEVEL_COUNT);
 
   for (const room of levels) {
     const flat = room.stage.flat();
-    assert.ok(flat.includes(TILE.BATTERY), `level ${room.level + 1} should include a battery`);
+    assert.ok(flat.includes(TILE.KEY), `level ${room.level + 1} should include a key`);
     assert.ok(flat.includes(TILE.EXIT), `level ${room.level + 1} should include an exit`);
     assert.equal(room.stage[2][0], TILE.WALL, `level ${room.level + 1} should render boundary walls separately`);
     assert.ok(
@@ -380,6 +532,46 @@ test("debug level generator exposes all adventure rooms with goals", () => {
   }
 });
 
+test("adventure rooms keep a completable route and no reachable dead-end pockets", () => {
+  for (const room of generateAdventureLevels()) {
+    const starts = auditStartNodes(room);
+    const keyTargets = auditTargetNodes(room, TILE.KEY);
+    const exitTargets = auditTargetNodes(room, TILE.EXIT);
+
+    assert.ok(starts.length > 0, `level ${room.level + 1} should have a reachable landing below spawn`);
+    assert.ok(keyTargets.size > 0, `level ${room.level + 1} should expose key approach surfaces`);
+    assert.ok(exitTargets.size > 0, `level ${room.level + 1} should expose exit approach surfaces`);
+
+    const fromStart = auditFlood(room, starts);
+    const keyStarts = [...keyTargets].filter((key) => fromStart.has(key)).map(auditNode);
+
+    assert.ok(keyStarts.length > 0, `level ${room.level + 1} key should be route-reachable`);
+    assert.ok(
+      auditIntersects(auditFlood(room, keyStarts), exitTargets),
+      `level ${room.level + 1} exit should be reachable after the key route`
+    );
+
+    for (const key of fromStart) {
+      assert.ok(
+        auditIntersects(auditFlood(room, [auditNode(key)]), exitTargets),
+        `level ${room.level + 1} should let reachable surface ${key} escape to the exit`
+      );
+    }
+
+    for (const switchOn of [false, true]) {
+      for (let y = 3; y < 17; y += 1) {
+        for (let x = 1; x < 19; x += 1) {
+          assert.equal(
+            auditOneTilePocket(room, x, y, switchOn),
+            false,
+            `level ${room.level + 1} should not trap the player in a one-tile pocket at ${x},${y}`
+          );
+        }
+      }
+    }
+  }
+});
+
 test("non-tutorial adventure rooms use upper routes and world mechanics", () => {
   const levels = generateAdventureLevels();
   const interestingTiles = new Set([
@@ -388,7 +580,7 @@ test("non-tutorial adventure rooms use upper routes and world mechanics", () => 
     TILE.SPRING,
     TILE.SPIKE,
     TILE.COIN,
-    TILE.BATTERY,
+    TILE.KEY,
     TILE.EXIT,
     TILE.SWITCH,
     TILE.TOGGLE,
@@ -477,4 +669,11 @@ test("spring tutorial keeps the spring beside the starter platform", () => {
   const room = generateAdventureLevel(4);
   assert.equal(room.stage[14][6], TILE.SPRING);
   assert.equal(room.stage[15][5], TILE.EMPTY);
+});
+
+test("crack tutorial keeps the key route open instead of caged", () => {
+  const room = generateAdventureLevel(1);
+  assert.equal(room.stage[11][9], TILE.KEY);
+  assert.equal(room.stage[13][5], TILE.EMPTY);
+  assert.equal(room.stage[13][13], TILE.EMPTY);
 });

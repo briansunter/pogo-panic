@@ -15,6 +15,22 @@
 #define TILE8(a,b,c,d,e,f,g,h) a,a,b,b,c,c,d,d,e,e,f,f,g,g,h,h
 #define TILE2(a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p) a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p
 
+/* ============================================================ */
+/* Music engine                                                 */
+/*                                                              */
+/* Public surface (used by the rest of main.c):                 */
+/*   music_start(track)   - select and start a track            */
+/*   music_pause(p)       - pause/resume                        */
+/*   music_sfx_event(ev)  - fire a one-shot SFX                 */
+/*   music_update()       - call once per frame                 */
+/*   init_sound()         - one-time hardware init              */
+/*                                                              */
+/* Everything else is private. The five state variables         */
+/* (music_track, music_step, music_frame, music_paused,         */
+/* music_sfx_timer) are static so the rest of main.c cannot     */
+/* read or write them directly.                                 */
+/* ============================================================ */
+
 #define NOTE_REST 0u
 #define NOTE_C3 1046u
 #define NOTE_CS3 1102u
@@ -97,7 +113,7 @@ static const uint8_t bg_tiles[] = {
     TILE2(0x00,0x00,0x3c,0x3c,0x18,0x18,0x3c,0x3c,0x66,0x66,0x3c,0x3c,0x18,0x18,0x3c,0x3c), /* spring */
     TILE2(0x00,0x00,0x10,0x10,0x10,0x10,0x38,0x38,0x38,0x38,0x7c,0x7c,0x7c,0xfe,0xff,0xff), /* spikes */
     TILE2(0x00,0x00,0x18,0x18,0x24,0x24,0x42,0x42,0x42,0x42,0x24,0x24,0x18,0x18,0x00,0x00), /* coin */
-    TILE2(0x3c,0x3c,0x66,0x66,0x5a,0x5a,0x5a,0x5a,0x5a,0x5a,0x66,0x66,0x3c,0x3c,0x00,0x00), /* battery */
+    TILE2(0x70,0x70,0x88,0x88,0x88,0x88,0x70,0x70,0x20,0x20,0x20,0x20,0x38,0x38,0x20,0x20), /* key */
     TILE2(0x7e,0xff,0x7e,0xc3,0x66,0xdb,0x66,0xdb,0x66,0xdb,0x66,0xdb,0x7e,0xc3,0x7e,0xff), /* exit */
     TILE2(0x00,0x00,0x3c,0x00,0x42,0x3c,0x5a,0x3c,0x5a,0x3c,0x24,0x18,0x7e,0x00,0x00,0x00), /* switch */
     TILE2(0xff,0xff,0xff,0x81,0xc3,0xbd,0xdb,0xa5,0xdb,0xa5,0xc3,0xbd,0xff,0x81,0xff,0xff), /* toggle */
@@ -649,7 +665,7 @@ static void music_sfx_event(uint8_t event) {
     if (event == EVENT_COIN) {
         music_sfx_timer = 7u;
         music_play_square1(NOTE_C6, 10u, AUDLEN_DUTY_25);
-    } else if (event == EVENT_BATTERY) {
+    } else if (event == EVENT_KEY) {
         music_sfx_timer = 10u;
         music_play_square1(NOTE_G5, 12u, AUDLEN_DUTY_50);
         music_play_drum(DRUM_HAT);
@@ -687,6 +703,8 @@ static void init_sound(void) {
     rAUD3LEVEL = 0;
     rAUD4ENV = 0;
 }
+
+/* End music engine */
 
 static uint8_t glyph_for(char c) {
     if ((c >= 'A') && (c <= 'Z')) return (uint8_t)(c - 'A');
@@ -757,23 +775,22 @@ static void fill_screen(uint8_t tile) {
 }
 
 static void save_write(void) {
-    uint8_t *sram;
-    sram = (uint8_t *)0xa000u;
-    save_data.checksum = checksum_save(&save_data);
+    uint8_t *blob;
+    uint16_t len;
+    save_data_blob(&blob, &len);
     ENABLE_RAM_MBC1;
-    memcpy(sram, &save_data, sizeof(SaveData));
+    memcpy((uint8_t *)0xa000u, blob, len);
     DISABLE_RAM_MBC1;
 }
 
 static void save_read(void) {
-    const uint8_t *sram;
-    sram = (const uint8_t *)0xa000u;
+    uint8_t *blob;
+    uint16_t len;
+    save_data_blob(&blob, &len);
     ENABLE_RAM_MBC1;
-    memcpy(&save_data, sram, sizeof(SaveData));
+    memcpy(blob, (const uint8_t *)0xa000u, len);
     DISABLE_RAM_MBC1;
-    if ((save_data.magic != SAVE_MAGIC) || (save_data.version != SAVE_VERSION) ||
-        (save_data.checksum != checksum_save(&save_data)) ||
-        (save_data.unlocked == 0) || (save_data.unlocked > NUM_ADVENTURE_LEVELS)) {
+    if (!save_validate()) {
         save_defaults();
         save_write();
     }
@@ -781,13 +798,13 @@ static void save_read(void) {
 
 static uint8_t progress_level_limit(void) {
     if (game_mode == MODE_PANIC) return 0;
-    if (game_mode == MODE_ADVENTURE) return save_data.unlocked;
+    if (game_mode == MODE_ADVENTURE) return save_unlocked_count();
     return NUM_ADVENTURE_LEVELS;
 }
 
 static void progress_prepare_selected_level(void) {
     if (game_mode == MODE_ADVENTURE) {
-        if (selected_level >= save_data.unlocked) selected_level = (uint8_t)(save_data.unlocked - 1u);
+        if (selected_level >= save_unlocked_count()) selected_level = (uint8_t)(save_unlocked_count() - 1u);
         current_level = selected_level;
     } else if (game_mode == MODE_TRIAL) {
         current_level = selected_level;
@@ -797,16 +814,12 @@ static void progress_prepare_selected_level(void) {
 }
 
 static void progress_record_clear(void) {
-    if ((game_mode != MODE_PANIC) && (level_time < save_data.best_time[current_level])) {
-        save_data.best_time[current_level] = level_time;
-    }
-    if (game_mode == MODE_ADVENTURE) {
-        if ((current_level + 1u) < NUM_ADVENTURE_LEVELS) {
-            if (save_data.unlocked < (uint8_t)(current_level + 2u)) save_data.unlocked = (uint8_t)(current_level + 2u);
-        }
-    } else if (game_mode == MODE_PANIC) {
+    if (game_mode == MODE_PANIC) {
         panic_depth++;
-        if (panic_depth > save_data.panic_best) save_data.panic_best = panic_depth;
+        save_record_panic(panic_depth);
+    } else {
+        save_record_clear(current_level, level_time);
+        if (game_mode == MODE_ADVENTURE) save_unlock_through(current_level);
     }
     save_write();
 }
@@ -874,9 +887,12 @@ static void draw_hud(void) {
     for (i = 0; i < SCREEN_TILES_W; i++) scratch[i] = T_EMPTY;
     set_bkg_tiles(0, 0, SCREEN_TILES_W, 1, scratch);
     set_bkg_tiles(0, HUD_Y, SCREEN_TILES_W, 1, scratch);
-    if (feedback_timer && (feedback_kind == FEEDBACK_SHIELD)) draw_text(6, 0, "SHIELD");
-    else if (feedback_timer && (feedback_kind == FEEDBACK_STOMP)) draw_text(7, 0, "STOMP");
-    else if (feedback_timer && (feedback_kind == FEEDBACK_CRACK)) draw_text(7, 0, "CRACK");
+    if (hud_feedback_active()) {
+        uint8_t k = hud_feedback_kind();
+        if (k == FEEDBACK_SHIELD) draw_text(6, 0, "SHIELD");
+        else if (k == FEEDBACK_STOMP) draw_text(7, 0, "STOMP");
+        else if (k == FEEDBACK_CRACK) draw_text(7, 0, "CRACK");
+    }
     if (game_mode == MODE_ADVENTURE) {
         draw_char(0, HUD_Y, 'A');
         draw_u8_2(1, HUD_Y, (uint8_t)(current_level + 1u));
@@ -888,8 +904,7 @@ static void draw_hud(void) {
         if (panic_depth > 99u) draw_u8_2(1, HUD_Y, 99);
         else draw_u8_2(1, HUD_Y, (uint8_t)panic_depth);
     }
-    if (battery) draw_text(4, HUD_Y, "DOOR");
-    else draw_text(4, HUD_Y, "BAT");
+    if (key) draw_tile_icon(4, HUD_Y, T_KEY);
     draw_char(9, HUD_Y, 'C');
     draw_u8_2(10, HUD_Y, (coins > 99u) ? 99u : coins);
     draw_char(13, HUD_Y, 'T');
@@ -914,18 +929,13 @@ static void add_coin_bonus(uint8_t amount) {
     mark_hud_dirty();
 }
 
-static void start_feedback(uint8_t kind, uint8_t timer) {
-    feedback_kind = kind;
-    feedback_timer = timer;
-    hud_dirty = 1;
-}
-
 static void emit_game_event(uint8_t event) {
     music_sfx_event(event);
+    hud_feedback_on_event(event);
     if (event == EVENT_COIN) {
         add_coin_bonus(1u);
-    } else if (event == EVENT_BATTERY) {
-        if (!battery) battery = 1;
+    } else if (event == EVENT_KEY) {
+        if (!key) key = 1;
         mark_hud_dirty();
     } else if (event == EVENT_BUBBLE) {
         bubble = 1;
@@ -934,12 +944,12 @@ static void emit_game_event(uint8_t event) {
         bubble = 0;
         invuln = 70;
         player_vy = FIX(-5);
-        start_feedback(FEEDBACK_SHIELD, 36);
+        mark_hud_dirty();
     } else if (event == EVENT_STOMP) {
         add_coin_bonus(stomp_chain ? stomp_chain : 1u);
-        if (!feedback_timer) start_feedback(FEEDBACK_STOMP, 18);
+        mark_hud_dirty();
     } else if (event == EVENT_CRACK) {
-        if (!feedback_timer) start_feedback(FEEDBACK_CRACK, 18);
+        mark_hud_dirty();
     } else if (event == EVENT_SWITCH) {
         mark_hud_dirty();
     }
@@ -956,18 +966,13 @@ static void present_frame(void) {
         hud_second = second;
         hud_dirty = 1;
     }
-    if (feedback_timer) hud_dirty = 1;
+    if (hud_feedback_active()) hud_dirty = 1;
     if (hud_dirty) {
         draw_hud();
         hud_dirty = 0;
     }
-    if (feedback_timer) {
-        feedback_timer--;
-        if (feedback_timer == 0u) {
-            feedback_kind = FEEDBACK_NONE;
-            hud_dirty = 1;
-        }
-    }
+    hud_feedback_tick();
+    if (hud_feedback_expired_this_tick()) hud_dirty = 1;
 }
 
 static uint8_t point_tile_x(int16_t fx) {
@@ -1030,9 +1035,9 @@ static void complete_level(void) {
         else draw_u8_2(12, 10, (uint8_t)panic_depth);
     } else {
         draw_text(4, 10, "BEST");
-        draw_time(10, 10, save_data.best_time[current_level]);
+        draw_time(10, 10, save_best_time(current_level));
     }
-    draw_text(3, 13, "A NEXT  B MENU");
+    draw_text(7, 13, "A NEXT");
 }
 
 static uint8_t player_center_tile(void) {
@@ -1056,6 +1061,7 @@ static void collect_tiles(void) {
     uint8_t x;
     uint8_t y;
     uint8_t t;
+    const TileBehavior *b;
     tx1 = point_tile_x(player_x);
     tx2 = point_tile_x((int16_t)(player_x + FIX(PLAYER_W - 1)));
     ty1 = point_tile_y(player_y);
@@ -1063,36 +1069,37 @@ static void collect_tiles(void) {
     for (y = ty1; y <= ty2; y++) {
         for (x = tx1; x <= tx2; x++) {
             t = stage_tile(x, y);
-            if (t == T_COIN) {
-                emit_game_event(EVENT_COIN);
-                put_stage_tile(x, y, T_EMPTY);
-            } else if (t == T_BATTERY) {
-                emit_game_event(EVENT_BATTERY);
-                put_stage_tile(x, y, T_EMPTY);
-            } else if (t == T_BUBBLE) {
-                emit_game_event(EVENT_BUBBLE);
-                put_stage_tile(x, y, T_EMPTY);
+            b = &tile_table[t];
+            if (b->pickup_event) {
+                emit_game_event((uint8_t)(b->pickup_event - 1u));
+                if (b->consumed_on_pickup) put_stage_tile(x, y, T_EMPTY);
             } else if (is_danger_tile(t)) {
                 hurt_player();
                 return;
             }
         }
     }
-    if (battery && player_overlaps_exit()) {
+    if (key && player_overlaps_exit()) {
         complete_level();
         return;
     }
 }
 
 static void do_bounce(uint8_t tile, uint8_t joy) {
+    const TileBehavior *b = &tile_table[tile];
+    int16_t vy;
+    /* T_SWITCH is the one tile whose landing fires a side effect that the
+     * table cannot represent (it mutates global switch state). Keep it
+     * explicit; encoding it as a pickup_event would change semantics
+     * because trigger_switch is a switch-tile-only side effect, not an
+     * overlap-style pickup. */
     if (tile == T_SWITCH) trigger_switch();
-    if (tile == T_SPRING) {
-        player_vy = (joy & J_B) ? BOUNCE_SPRING_SHORT : BOUNCE_SPRING;
-    } else {
-        player_vy = (joy & J_B) ? BOUNCE_SHORT : BOUNCE_NORMAL;
-    }
-    if (tile == T_CONV_L) player_vx -= FIX(1);
-    if (tile == T_CONV_R) player_vx += FIX(1);
+    if (b->bounce_vy == 0) return;
+    vy = (joy & J_B) ? b->bounce_vy_short : b->bounce_vy;
+    player_vy = vy;
+    /* Conveyor tiles encode their per-bounce horizontal kick in conveyor_dx
+     * (FIX(1) magnitude). Non-conveyor solid tiles have conveyor_dx == 0. */
+    player_vx += b->conveyor_dx;
     if (joy & J_LEFT) player_vx -= PLAYER_AIR_KICK;
     if (joy & J_RIGHT) player_vx += PLAYER_AIR_KICK;
     clamp_player_vx();
@@ -1297,8 +1304,12 @@ static void apply_player_world_forces(void) {
     uint8_t center_tile;
     int16_t gravity;
     center_tile = player_center_tile();
-    if (center_tile == T_FAN_L) player_vx -= 3;
-    if (center_tile == T_FAN_R) player_vx += 3;
+    /* Per-frame horizontal nudge from the tile the player center is in.
+     * In practice this fires for fan tiles (non-solid, so the player can
+     * occupy them) with magnitude +/-3. Conveyors are solid, so the player
+     * center is never inside one — their conveyor_dx is consumed by
+     * do_bounce instead. See TileBehavior in game-logic.h. */
+    player_vx += tile_table[center_tile].conveyor_dx;
     clamp_player_vx();
     gravity = (level_world == 2u) ? 3 : 4;
     if (stomping) gravity = 6;
@@ -1630,19 +1641,19 @@ static void show_mode_select(void) {
     draw_text(3, 8, "TIME TRIAL");
     if (game_mode == MODE_ADVENTURE) {
         world = (uint8_t)((selected_level >> 4) + 1u);
-        draw_text(2, 10, "GET BAT THEN DOOR");
+        draw_text(2, 10, "GET KEY THEN DOOR");
         draw_text(2, 12, "LEVEL");
         draw_u8_2(9, 12, (uint8_t)(selected_level + 1u));
         draw_text(12, 12, "WORLD");
         draw_char(18, 12, (char)('0' + world));
         draw_text(2, 13, "OPEN");
-        draw_u8_2(8, 13, save_data.unlocked);
+        draw_u8_2(8, 13, save_unlocked_count());
     } else if (game_mode == MODE_PANIC) {
         draw_text(2, 10, "ENDLESS FAST ROOMS");
         draw_text(2, 12, "SAFE START MIX");
         draw_text(2, 13, "BEST DEPTH");
-        if (save_data.panic_best > 99u) draw_u8_2(14, 13, 99);
-        else draw_u8_2(14, 13, (uint8_t)save_data.panic_best);
+        if (save_panic_best() > 99u) draw_u8_2(14, 13, 99);
+        else draw_u8_2(14, 13, (uint8_t)save_panic_best());
     } else {
         world = (uint8_t)((selected_level >> 4) + 1u);
         draw_text(2, 10, "RACE ANY ROOM");
@@ -1651,7 +1662,7 @@ static void show_mode_select(void) {
         draw_text(12, 12, "WORLD");
         draw_char(18, 12, (char)('0' + world));
         draw_text(2, 13, "BEST");
-        draw_time(8, 13, save_data.best_time[selected_level]);
+        draw_time(8, 13, save_best_time(selected_level));
     }
     if (game_mode != MODE_PANIC) draw_text(1, 14, "U/D MODE L/R LEVEL");
     else draw_text(5, 14, "U/D MODE");
@@ -1674,16 +1685,16 @@ static void show_howto(void) {
         draw_text(1, 8, "B SHORT HOP");
         draw_text(1, 10, "START PAUSE");
     } else if (how_page == 1u) {
-        draw_tile_icon(2, 4, T_BATTERY);
-        draw_text(4, 4, "GET BATTERY");
+        draw_tile_icon(2, 4, T_KEY);
+        draw_text(4, 4, "GET KEY");
         draw_tile_icon(2, 6, T_EXIT);
         draw_text(4, 6, "THEN ENTER DOOR");
         draw_text(4, 8, "CENTER ON DOOR");
         draw_tile_icon(2, 10, T_COIN);
         draw_text(4, 10, "COINS ARE BONUS");
     } else if (how_page == 2u) {
-        draw_tile_icon(2, 4, T_BATTERY);
-        draw_text(4, 4, "BATTERY GOAL");
+        draw_tile_icon(2, 4, T_KEY);
+        draw_text(4, 4, "KEY GOAL");
         draw_tile_icon(2, 6, T_BUBBLE);
         draw_text(4, 6, "BUBBLE SHIELD");
         draw_tile_icon(2, 8, T_SPIKE);
@@ -1784,10 +1795,7 @@ static void update_clear(uint8_t pressed) {
         clear_wait--;
         return;
     }
-    if (pressed & J_B) {
-        state = STATE_TITLE;
-        show_title();
-    } else if (pressed & (J_A | J_START)) {
+    if (pressed & (J_A | J_START)) {
         if (game_mode == MODE_ADVENTURE) {
             if ((current_level + 1u) < NUM_ADVENTURE_LEVELS) {
                 current_level++;

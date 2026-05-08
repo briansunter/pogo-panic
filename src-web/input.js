@@ -73,6 +73,7 @@ export function bindDirectionalPads({ root = document, input, bindings = CONTROL
 
   root.querySelectorAll("[data-dpad]").forEach((pad) => {
     let activeControl = null;
+    let activePointerId = null;
 
     const buttons = new Map(directions.map((control) => [control, pad.querySelector(`[data-key="${control}"]`)]));
     const setActiveControl = (control) => {
@@ -97,30 +98,42 @@ export function bindDirectionalPads({ root = document, input, bindings = CONTROL
       if (Math.abs(y) > 0) return y < 0 ? "up" : "down";
       return activeControl;
     };
-    const pressOrMove = (event) => {
+    const isActivePointer = (event) => activePointerId != null && (event.pointerId == null || event.pointerId === activePointerId);
+    const press = (event) => {
       const control = controlFromPointer(event);
       if (!control) return;
+      activePointerId = event.pointerId ?? 0;
       event.preventDefault();
       safelyCapturePointer(pad, event);
       setActiveControl(control);
       onInputStart();
     };
+    const move = (event) => {
+      if (!isActivePointer(event)) return;
+      const control = controlFromPointer(event);
+      if (!control) return;
+      event.preventDefault();
+      setActiveControl(control);
+    };
     const release = (event) => {
+      if (!isActivePointer(event)) return;
       event.preventDefault();
       safelyReleasePointer(pad, event);
+      activePointerId = null;
       clearActiveControl();
     };
 
-    pad.addEventListener("pointerdown", pressOrMove);
-    pad.addEventListener("pointermove", pressOrMove);
+    pad.addEventListener("pointerdown", press);
+    pad.addEventListener("pointermove", move);
     pad.addEventListener("pointerup", release);
     pad.addEventListener("pointercancel", release);
     pad.addEventListener("pointerleave", release);
 
     unbind.push(() => {
+      activePointerId = null;
       clearActiveControl();
-      pad.removeEventListener("pointerdown", pressOrMove);
-      pad.removeEventListener("pointermove", pressOrMove);
+      pad.removeEventListener("pointerdown", press);
+      pad.removeEventListener("pointermove", move);
       pad.removeEventListener("pointerup", release);
       pad.removeEventListener("pointercancel", release);
       pad.removeEventListener("pointerleave", release);

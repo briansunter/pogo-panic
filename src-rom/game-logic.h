@@ -23,15 +23,15 @@
 #define TILEF_SOLID 0x01u
 #define TILEF_DANGER 0x02u
 
-#define PLAYER_ACCEL 3
+#define PLAYER_ACCEL 2
 #define PLAYER_FRICTION 2
-#define PLAYER_MAX_VX 34
-#define PLAYER_AIR_KICK 6
+#define PLAYER_MAX_VX 30
+#define PLAYER_AIR_KICK 4
 
-#define BOUNCE_NORMAL ((int16_t)-80)
-#define BOUNCE_SHORT ((int16_t)-56)
-#define BOUNCE_SPRING ((int16_t)-96)
-#define BOUNCE_SPRING_SHORT ((int16_t)-72)
+#define BOUNCE_NORMAL ((int16_t)-76)
+#define BOUNCE_SHORT ((int16_t)-50)
+#define BOUNCE_SPRING ((int16_t)-90)
+#define BOUNCE_SPRING_SHORT ((int16_t)-64)
 
 #define COIN_LIMIT 99u
 
@@ -50,7 +50,7 @@ enum TileType {
     T_SPRING,
     T_SPIKE,
     T_COIN,
-    T_BATTERY,
+    T_KEY,
     T_EXIT,
     T_SWITCH,
     T_TOGGLE,
@@ -79,7 +79,7 @@ enum GameMode {
 
 enum FeedbackKind {
     FEEDBACK_NONE = 0,
-    FEEDBACK_BATTERY,
+    FEEDBACK_KEY,
     FEEDBACK_SHIELD,
     FEEDBACK_STOMP,
     FEEDBACK_CRACK
@@ -87,7 +87,7 @@ enum FeedbackKind {
 
 enum GameEvent {
     EVENT_COIN = 0,
-    EVENT_BATTERY,
+    EVENT_KEY,
     EVENT_BUBBLE,
     EVENT_SHIELD,
     EVENT_STOMP,
@@ -111,13 +111,37 @@ typedef struct SaveData {
     uint8_t checksum;
 } SaveData;
 
+/* Per-tile behavior table. One row per TileType, indexed by enum value.
+ * conveyor_dx units: raw fixed-point delta added to player_vx (same units as
+ * the original literals: fan tiles used +/-3, conveyor tiles used +/-FIX(1)=+/-16).
+ * conveyor_dx is consumed in two sites with different cadences:
+ *   - apply_player_world_forces() applies it per-frame when player center
+ *     is on the tile (this is how fans pushed the player every frame).
+ *   - do_bounce() applies it once on landing (this is how conveyors gave
+ *     a one-shot horizontal kick on bounce). The two effects do not overlap
+ *     because conveyors are solid (player center is above, not in them) and
+ *     fans are non-solid (do_bounce is never called with a fan tile). */
+typedef struct TileBehavior {
+    uint8_t flags;              /* TILEF_SOLID | TILEF_DANGER */
+    int16_t bounce_vy;          /* normal bounce vy on landing; 0 if non-bouncy */
+    int16_t bounce_vy_short;    /* short-bounce variant when J_B is held; 0 if non-bouncy */
+    int8_t  conveyor_dx;        /* horizontal nudge in raw fixed-point; 0 if none */
+    uint8_t pickup_event;       /* GameEvent value + 1 fired on player overlap; 0 = none.
+                                   The +1 offset is required because EVENT_COIN==0 collides
+                                   with the "no event" sentinel. Decode at use site as
+                                   (GameEvent)(pickup_event - 1). */
+    uint8_t consumed_on_pickup; /* 1 if tile clears to T_EMPTY after pickup */
+    uint8_t breakable_by_stomp; /* 1 if a stomp from above breaks this tile */
+} TileBehavior;
+
+extern const TileBehavior tile_table[TILE_COUNT];
+
 /* ------------------------------------------------------------------ */
 /* Globals                                                            */
 /* ------------------------------------------------------------------ */
 
 extern uint8_t stage[SCREEN_TILES_H][SCREEN_TILES_W];
 extern Enemy enemies[MAX_ENEMIES];
-extern SaveData save_data;
 
 extern uint8_t game_mode;
 extern uint8_t selected_level;
@@ -125,7 +149,7 @@ extern uint8_t current_level;
 extern uint16_t panic_depth;
 extern uint8_t level_world;
 extern uint8_t coins;
-extern uint8_t battery;
+extern uint8_t key;
 extern uint8_t bubble;
 extern uint8_t switch_on;
 extern uint8_t switch_cooldown;
@@ -148,8 +172,12 @@ extern uint8_t stomp_ready;
 extern uint8_t stomp_chain;
 extern uint8_t invuln;
 
-extern uint8_t feedback_kind;
-extern uint8_t feedback_timer;
+/* HUD feedback module. Owns feedback_kind and feedback_timer privately. */
+void hud_feedback_on_event(uint8_t event);  /* maps GameEvent to feedback; no-op for events without UI feedback */
+void hud_feedback_tick(void);                /* call once per frame; decrements timer, clears kind on expiry */
+uint8_t hud_feedback_active(void);           /* 1 if feedback is currently displayed */
+uint8_t hud_feedback_kind(void);             /* returns current FeedbackKind, or FEEDBACK_NONE if inactive */
+uint8_t hud_feedback_expired_this_tick(void); /* 1 only on the tick that timer reached 0 */
 
 /* ------------------------------------------------------------------ */
 /* Function prototypes                                                */
@@ -166,17 +194,19 @@ uint8_t is_stomp_breakable(uint8_t tile);
 void add_platform(uint8_t x, uint8_t y, uint8_t w, uint8_t tile);
 void add_enemy(uint8_t tx, uint8_t ty, int8_t vx);
 void set_spawn_px(uint8_t x, uint8_t y);
-void add_column(uint8_t x, uint8_t y, uint8_t h, uint8_t tile);
 void add_coin_line(uint8_t x, uint8_t y, uint8_t w);
 void add_hazard_line(uint8_t x, uint8_t y, uint8_t w, uint8_t tile);
 void add_tile_if_empty(uint8_t x, uint8_t y, uint8_t tile);
 void add_platform_if_empty(uint8_t x, uint8_t y, uint8_t w, uint8_t tile);
 void add_stomp_route(uint8_t x, uint8_t y, uint8_t w);
+void add_route_step(uint8_t x, uint8_t y, uint8_t w, uint8_t tile);
 void place_marker_down(uint8_t x, uint8_t y);
 void place_exit(uint8_t x, uint8_t y);
-void place_battery(uint8_t x, uint8_t y);
+void place_key(uint8_t x, uint8_t y);
 void clear_if_danger(uint8_t x, uint8_t y);
 void soften_exit(void);
+void unpin_goal_tiles(void);
+void fill_one_tile_pockets(void);
 void set_room_switch(uint8_t on);
 void add_moving_platform(uint8_t x, uint8_t y, uint8_t w, int8_t dir);
 void sprinkle_coins(uint8_t seed, uint8_t count);
@@ -198,6 +228,23 @@ void generate_panic(uint16_t depth);
 
 uint8_t checksum_save(const SaveData *data);
 void save_defaults(void);
+
+/* Save data API. The SaveData global lives inside game-logic.c; callers must
+ * use these functions rather than reaching for it directly. Each mutation
+ * recomputes the checksum so callers can't forget. */
+uint8_t  save_unlocked_count(void);
+uint16_t save_best_time(uint8_t level);    /* returns 0xffffu for invalid level */
+uint16_t save_panic_best(void);
+
+void save_record_clear(uint8_t level, uint16_t time);  /* monotonic: only overwrites if time < current best */
+void save_unlock_through(uint8_t level);                /* unlocks level+1 if not already unlocked (no-op past last level) */
+void save_record_panic(uint16_t depth);                /* monotonic: only overwrites if depth > current best */
+
+uint8_t save_validate(void); /* 1 if magic/version/checksum/unlocked all OK; 0 otherwise. */
+
+/* Raw blob access -- ONLY for SRAM persistence in main.c. No other caller
+ * should touch the bytes directly. */
+void save_data_blob(uint8_t **out_ptr, uint16_t *out_len);
 
 #endif /* POGO_GAME_LOGIC_CONSTANTS_ONLY */
 

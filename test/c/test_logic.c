@@ -40,7 +40,87 @@ static void test_tile_flags(void) {
     assert(stage_tile(SCREEN_TILES_W, 0) == T_SOLID);
     assert(stage_tile(0, SCREEN_TILES_H) == T_SOLID);
 
+    /* In-bounds reads return the actual tile. */
+    stage[5][7] = T_SPIKE;
+    assert(stage_tile(7, 5) == T_SPIKE);
+    stage[5][7] = T_EMPTY;
+
+    /* Non-T_TOGGLE tiles pass through is_solid_tile and bg_for_tile. */
+    assert(is_solid_tile(T_SOLID));
+    assert(!is_solid_tile(T_EMPTY));
+    assert(bg_for_tile(T_SPIKE) == T_SPIKE);
+    assert(bg_for_tile(T_COIN) == T_COIN);
+
+    /* tile_at_fixed converts world fixed-point to a tile lookup. Each tile is
+     * 8 px wide; FP_SHIFT scales pixels to fixed-point. */
+    stage[3][4] = T_WATER;
+    assert(tile_at_fixed(FIX(4 * TILE_PX + 1), FIX(3 * TILE_PX + 1)) == T_WATER);
+    /* Out-of-range fixed-point coords clamp to T_SOLID (treated as wall). */
+    assert(tile_at_fixed((int16_t)-1, FIX(0)) == T_SOLID);
+    stage[3][4] = T_EMPTY;
+
     puts("PASS: test_tile_flags");
+}
+
+static void test_tile_table(void) {
+    uint16_t t;
+
+    /* Predicates must agree with the table's flag bits for every tile id. */
+    for (t = 0; t < TILE_COUNT; t++) {
+        uint8_t solid_pred = tile_has_flag((uint8_t)t, TILEF_SOLID);
+        uint8_t solid_tab  = (uint8_t)((tile_table[t].flags & TILEF_SOLID) != 0u);
+        uint8_t danger_pred = tile_has_flag((uint8_t)t, TILEF_DANGER);
+        uint8_t danger_tab  = (uint8_t)((tile_table[t].flags & TILEF_DANGER) != 0u);
+        assert(solid_pred == solid_tab);
+        assert(danger_pred == danger_tab);
+    }
+
+    /* Spring is the one tile with the spring bounce velocity pair. */
+    assert(tile_table[T_SPRING].bounce_vy == BOUNCE_SPRING);
+    assert(tile_table[T_SPRING].bounce_vy_short == BOUNCE_SPRING_SHORT);
+
+    /* All other solid tiles use the standard bounce pair. */
+    assert(tile_table[T_SOLID].bounce_vy == BOUNCE_NORMAL);
+    assert(tile_table[T_SOLID].bounce_vy_short == BOUNCE_SHORT);
+    assert(tile_table[T_CRACK].bounce_vy == BOUNCE_NORMAL);
+    assert(tile_table[T_CONV_R].bounce_vy == BOUNCE_NORMAL);
+
+    /* Pickup tiles fire the right event. The table stores GameEvent + 1
+     * because EVENT_COIN == 0 collides with the "no event" sentinel. */
+    assert(tile_table[T_COIN].pickup_event == (uint8_t)(EVENT_COIN + 1));
+    assert(tile_table[T_COIN].consumed_on_pickup == 1);
+    assert(tile_table[T_KEY].pickup_event == (uint8_t)(EVENT_KEY + 1));
+    assert(tile_table[T_KEY].consumed_on_pickup == 1);
+    assert(tile_table[T_BUBBLE].pickup_event == (uint8_t)(EVENT_BUBBLE + 1));
+    assert(tile_table[T_BUBBLE].consumed_on_pickup == 1);
+
+    /* Stomp-breakable tiles. */
+    assert(tile_table[T_ROCK].breakable_by_stomp == 1);
+    assert(tile_table[T_CRACK].breakable_by_stomp == 1);
+    assert(tile_table[T_SOLID].breakable_by_stomp == 0);
+    assert(tile_table[T_SPRING].breakable_by_stomp == 0);
+
+    /* Empty tile is fully inert. */
+    assert(tile_table[T_EMPTY].flags == 0);
+    assert(tile_table[T_EMPTY].bounce_vy == 0);
+    assert(tile_table[T_EMPTY].bounce_vy_short == 0);
+    assert(tile_table[T_EMPTY].conveyor_dx == 0);
+    assert(tile_table[T_EMPTY].pickup_event == 0);
+    assert(tile_table[T_EMPTY].consumed_on_pickup == 0);
+    assert(tile_table[T_EMPTY].breakable_by_stomp == 0);
+
+    /* Conveyors push opposite directions; fans do too with smaller magnitude. */
+    assert(tile_table[T_CONV_R].conveyor_dx > 0);
+    assert(tile_table[T_CONV_L].conveyor_dx < 0);
+    assert(tile_table[T_FAN_R].conveyor_dx > 0);
+    assert(tile_table[T_FAN_L].conveyor_dx < 0);
+
+    /* is_stomp_breakable agrees with the table for every tile id. */
+    for (t = 0; t < TILE_COUNT; t++) {
+        assert(is_stomp_breakable((uint8_t)t) == tile_table[t].breakable_by_stomp);
+    }
+
+    puts("PASS: test_tile_table");
 }
 
 static void test_rng(void) {
@@ -82,32 +162,139 @@ static void test_rng(void) {
 
 static void test_save(void) {
     uint8_t i;
-    uint8_t reference;
+    uint8_t *blob;
+    uint16_t len;
 
-    memset(&save_data, 0xAA, sizeof(SaveData));
+    /* Scribble random bytes through the blob accessor (we no longer have
+     * direct access to save_data) before calling save_defaults(). */
+    save_data_blob(&blob, &len);
+    memset(blob, 0xAA, len);
     save_defaults();
 
-    assert(save_data.magic == SAVE_MAGIC);
-    assert(save_data.version == SAVE_VERSION);
-    assert(save_data.unlocked == 1);
-    assert(save_data.panic_best == 0);
+    /* Defaults pass validation. */
+    assert(save_validate() == 1);
+    assert(save_unlocked_count() == 1);
+    assert(save_panic_best() == 0);
     for (i = 0; i < NUM_ADVENTURE_LEVELS; i++) {
-        assert(save_data.best_time[i] == 0xffffu);
+        assert(save_best_time(i) == 0xffffu);
     }
-    assert(save_data.checksum == checksum_save(&save_data));
 
-    /* Tampering with a best_time entry must invalidate the checksum. */
-    save_data.best_time[5] = 0x1234u;
-    assert(save_data.checksum != checksum_save(&save_data));
+    /* Out-of-range level returns the sentinel. */
+    assert(save_best_time(NUM_ADVENTURE_LEVELS) == 0xffffu);
+    assert(save_best_time(0xff) == 0xffffu);
 
-    /* Reset, then tamper with magic; checksum should still differ. */
+    /* Blob accessor reports correct address and size. */
+    save_data_blob(&blob, &len);
+    assert(blob != NULL);
+    assert(len == sizeof(SaveData));
+
+    /* Tampering with the magic byte invalidates the save. */
+    blob[0] ^= 0xff;
+    assert(!save_validate());
+
+    /* Resetting restores validity. */
     save_defaults();
-    reference = save_data.checksum;
-    save_data.magic = 0xdeadu;
-    assert(save_data.checksum != checksum_save(&save_data));
-    (void)reference;
+    assert(save_validate());
+
+    /* save_record_clear records best time only; it does NOT touch unlocked. */
+    save_record_clear(5, 1234);
+    assert(save_best_time(5) == 1234);
+    assert(save_unlocked_count() == 1); /* unlocked unchanged */
+    assert(save_validate());
+
+    /* save_unlock_through is the explicit unlock API.  After clearing level 5
+     * the caller decides whether to unlock; main.c gates this on MODE_ADVENTURE
+     * so TRIAL/PANIC plays cannot grant Adventure progress. */
+    save_unlock_through(5);
+    assert(save_unlocked_count() == 7);
+    assert(save_validate());
+
+    /* Monotonicity: a slower time does not overwrite. */
+    save_record_clear(5, 9999);
+    assert(save_best_time(5) == 1234);
+    assert(save_validate());
+
+    /* A faster time does overwrite. */
+    save_record_clear(5, 100);
+    assert(save_best_time(5) == 100);
+    assert(save_validate());
+
+    /* Out-of-range level is a no-op (does not corrupt anything). */
+    save_record_clear(NUM_ADVENTURE_LEVELS, 0);
+    assert(save_validate());
+    assert(save_unlocked_count() == 7);
+
+    /* For the final level, (level + 1) is not < NUM_ADVENTURE_LEVELS, so the
+     * unlock bump is skipped. unlocked stays at 7. */
+    save_record_clear((uint8_t)(NUM_ADVENTURE_LEVELS - 1u), 50);
+    save_unlock_through((uint8_t)(NUM_ADVENTURE_LEVELS - 1u));
+    assert(save_validate());
+    assert(save_unlocked_count() == 7);
+
+    /* Panic: monotonic increase only. */
+    save_defaults();
+    assert(save_validate());
+    save_record_panic(50);
+    assert(save_panic_best() == 50);
+    assert(save_validate());
+    save_record_panic(30);
+    assert(save_panic_best() == 50);
+    assert(save_validate());
+    save_record_panic(75);
+    assert(save_panic_best() == 75);
+    assert(save_validate());
 
     puts("PASS: test_save");
+}
+
+static void test_hud_feedback(void) {
+    int i;
+
+    /* Defaults: nothing active. (feedback state is private; observe via accessors.) */
+
+    /* SHIELD activates with kind FEEDBACK_SHIELD. */
+    hud_feedback_on_event(EVENT_SHIELD);
+    assert(hud_feedback_active());
+    assert(hud_feedback_kind() == FEEDBACK_SHIELD);
+
+    /* Tick down to expiry. */
+    for (i = 0; i < 36; i++) hud_feedback_tick();
+    assert(!hud_feedback_active());
+    assert(hud_feedback_kind() == FEEDBACK_NONE);
+
+    /* STOMP activates if nothing else is up. */
+    hud_feedback_on_event(EVENT_STOMP);
+    assert(hud_feedback_active());
+    assert(hud_feedback_kind() == FEEDBACK_STOMP);
+
+    /* CRACK does NOT supersede an active STOMP (current behavior preserved). */
+    hud_feedback_on_event(EVENT_CRACK);
+    assert(hud_feedback_kind() == FEEDBACK_STOMP);
+
+    /* But SHIELD DOES supersede (it doesn't gate on active timer). */
+    hud_feedback_on_event(EVENT_SHIELD);
+    assert(hud_feedback_kind() == FEEDBACK_SHIELD);
+
+    /* Events without feedback mapping are no-ops. First, drain the SHIELD timer. */
+    for (i = 0; i < 36; i++) hud_feedback_tick();
+    assert(!hud_feedback_active());
+    hud_feedback_on_event(EVENT_COIN);
+    assert(!hud_feedback_active());
+    hud_feedback_on_event(EVENT_SWITCH);
+    assert(!hud_feedback_active());
+
+    /* Expired flag is true only on the tick where timer reached 0. */
+    hud_feedback_on_event(EVENT_CRACK); /* timer = 18 */
+    for (i = 0; i < 17; i++) {
+        hud_feedback_tick();
+        assert(!hud_feedback_expired_this_tick());
+    }
+    hud_feedback_tick();
+    assert(hud_feedback_expired_this_tick());
+    hud_feedback_tick();
+    assert(!hud_feedback_expired_this_tick());
+
+    puts("PASS: test_hud_feedback");
 }
 
 static uint8_t is_mechanic_tile(uint8_t t) {
@@ -122,6 +309,20 @@ static uint8_t is_platform_tile(uint8_t t) {
                      t == T_CONV_L || t == T_CONV_R || t == T_MOVING);
 }
 
+static uint8_t is_pocket_solid_tile(uint8_t t) {
+    return (uint8_t)(t == T_SOLID || t == T_CRACK || t == T_SPRING ||
+                     t == T_SWITCH || t == T_TOGGLE || t == T_CONV_L ||
+                     t == T_CONV_R || t == T_MOVING || t == T_ROCK ||
+                     t == T_WALL);
+}
+
+static uint8_t key_is_in_one_tile_pocket(uint8_t x, uint8_t y) {
+    if (x == 0u || x >= (uint8_t)(SCREEN_TILES_W - 1u) || y >= (uint8_t)(SCREEN_TILES_H - 1u)) return 0;
+    return (uint8_t)(is_pocket_solid_tile(stage[y][x - 1u]) &&
+                     is_pocket_solid_tile(stage[y][x + 1u]) &&
+                     is_pocket_solid_tile(stage[y + 1u][x]));
+}
+
 static void test_adventure_levels(void) {
     /* Per-world mechanic-tile aggregates (skip world 0 levels 0..7 tutorial). */
     uint32_t world_mech_sum[5];
@@ -131,7 +332,7 @@ static void test_adventure_levels(void) {
     uint8_t local;
     uint8_t x;
     uint8_t y;
-    uint8_t found_battery;
+    uint8_t found_key;
     uint8_t found_platform;
     uint32_t mech_count;
     static const uint32_t minimum_avg[5] = {4u, 7u, 3u, 12u, 10u};
@@ -147,17 +348,18 @@ static void test_adventure_levels(void) {
         /* Exit tile always at (18, 16). */
         assert(stage[16][18] == T_EXIT);
 
-        /* At least one battery tile somewhere on the stage. */
-        found_battery = 0;
-        for (y = 0; y < SCREEN_TILES_H && !found_battery; y++) {
+        /* At least one key tile somewhere on the stage. */
+        found_key = 0;
+        for (y = 0; y < SCREEN_TILES_H && !found_key; y++) {
             for (x = 0; x < SCREEN_TILES_W; x++) {
-                if (stage[y][x] == T_BATTERY) {
-                    found_battery = 1;
+                if (stage[y][x] == T_KEY) {
+                    found_key = 1;
+                    assert(!key_is_in_one_tile_pocket(x, y));
                     break;
                 }
             }
         }
-        assert(found_battery);
+        assert(found_key);
 
         /* Boundary walls. */
         assert(stage[CEILING_Y][0] == T_WALL);
@@ -210,7 +412,7 @@ static void test_panic_levels(void) {
     uint16_t i;
     uint8_t x;
     uint8_t y;
-    uint8_t found_battery;
+    uint8_t found_key;
     uint32_t danger_at_zero;
     uint32_t danger_at_fifty;
     uint32_t danger_count;
@@ -226,16 +428,19 @@ static void test_panic_levels(void) {
         assert(stage[13][4] == T_SWITCH);
         assert(stage[12][6] == T_BUBBLE);
 
-        found_battery = 0;
+        found_key = 0;
         danger_count = 0;
         for (y = 0; y < SCREEN_TILES_H; y++) {
             for (x = 0; x < SCREEN_TILES_W; x++) {
                 uint8_t t = stage[y][x];
-                if (t == T_BATTERY) found_battery = 1;
+                if (t == T_KEY) {
+                    found_key = 1;
+                    assert(!key_is_in_one_tile_pocket(x, y));
+                }
                 if (t == T_SPIKE || t == T_WATER) danger_count++;
             }
         }
-        assert(found_battery);
+        assert(found_key);
 
         if (depth == 0u) danger_at_zero = danger_count;
         if (depth == 50u) danger_at_fifty = danger_count;
@@ -257,10 +462,16 @@ int main(void) {
     test_tile_flags();
     reset_common();
 
+    test_tile_table();
+    reset_common();
+
     test_rng();
     reset_common();
 
     test_save();
+    reset_common();
+
+    test_hud_feedback();
     reset_common();
 
     test_adventure_levels();

@@ -4,34 +4,41 @@
 #include "game-logic.h"
 
 /* ------------------------------------------------------------------ */
-/* Tile flag table                                                    */
+/* Tile behavior table                                                */
+/*                                                                    */
+/* One row per TileType. All per-tile gameplay rules live here so that */
+/* adding a new tile is mostly a matter of adding an enum value and a  */
+/* row below. Predicates (tile_has_flag, is_solid_tile, is_danger_tile,*/
+/* is_stomp_breakable) and call sites (do_bounce, collect_tiles,       */
+/* apply_player_world_forces) read this table instead of switching on  */
+/* the tile id.                                                        */
 /* ------------------------------------------------------------------ */
 
-static const uint8_t tile_flags[] = {
-    0,              /* empty */
-    TILEF_SOLID,    /* solid */
-    TILEF_SOLID,    /* crack */
-    TILEF_SOLID,    /* spring */
-    TILEF_DANGER,   /* spikes */
-    0,              /* coin */
-    0,              /* battery */
-    0,              /* exit */
-    TILEF_SOLID,    /* switch */
-    TILEF_SOLID,    /* toggle */
-    0,              /* fan left */
-    0,              /* fan right */
-    TILEF_SOLID,    /* conveyor left */
-    TILEF_SOLID,    /* conveyor right */
-    TILEF_DANGER,   /* water */
-    0,              /* bubble */
-    TILEF_SOLID,    /* moving */
-    TILEF_SOLID,    /* rock */
-    0,              /* toggle off */
-    0,              /* arrow down */
-    0,              /* arrow right */
-    TILEF_SOLID,    /* wall */
-    0,              /* title shadow */
-    0               /* title fill */
+const TileBehavior tile_table[TILE_COUNT] = {
+    /* T_EMPTY        */ { 0,            0,             0,                   0,        0,                0, 0 },
+    /* T_SOLID        */ { TILEF_SOLID,  BOUNCE_NORMAL, BOUNCE_SHORT,        0,        0,                0, 0 },
+    /* T_CRACK        */ { TILEF_SOLID,  BOUNCE_NORMAL, BOUNCE_SHORT,        0,        0,                0, 1 },
+    /* T_SPRING       */ { TILEF_SOLID,  BOUNCE_SPRING, BOUNCE_SPRING_SHORT, 0,        0,                0, 0 },
+    /* T_SPIKE        */ { TILEF_DANGER, 0,             0,                   0,        0,                0, 0 },
+    /* T_COIN         */ { 0,            0,             0,                   0,        EVENT_COIN + 1,   1, 0 },
+    /* T_KEY          */ { 0,            0,             0,                   0,        EVENT_KEY + 1,   1, 0 },
+    /* T_EXIT         */ { 0,            0,             0,                   0,        0,                0, 0 },
+    /* T_SWITCH       */ { TILEF_SOLID,  BOUNCE_NORMAL, BOUNCE_SHORT,        0,        0,                0, 0 },
+    /* T_TOGGLE       */ { TILEF_SOLID,  BOUNCE_NORMAL, BOUNCE_SHORT,        0,        0,                0, 0 },
+    /* T_FAN_L        */ { 0,            0,             0,                   -3,       0,                0, 0 },
+    /* T_FAN_R        */ { 0,            0,             0,                   3,        0,                0, 0 },
+    /* T_CONV_L       */ { TILEF_SOLID,  BOUNCE_NORMAL, BOUNCE_SHORT,        -FIX(1),  0,                0, 0 },
+    /* T_CONV_R       */ { TILEF_SOLID,  BOUNCE_NORMAL, BOUNCE_SHORT,        FIX(1),   0,                0, 0 },
+    /* T_WATER        */ { TILEF_DANGER, 0,             0,                   0,        0,                0, 0 },
+    /* T_BUBBLE       */ { 0,            0,             0,                   0,        EVENT_BUBBLE + 1, 1, 0 },
+    /* T_MOVING       */ { TILEF_SOLID,  BOUNCE_NORMAL, BOUNCE_SHORT,        0,        0,                0, 0 },
+    /* T_ROCK         */ { TILEF_SOLID,  BOUNCE_NORMAL, BOUNCE_SHORT,        0,        0,                0, 1 },
+    /* T_TOGGLE_OFF   */ { 0,            0,             0,                   0,        0,                0, 0 },
+    /* T_ARROW_D      */ { 0,            0,             0,                   0,        0,                0, 0 },
+    /* T_ARROW_R      */ { 0,            0,             0,                   0,        0,                0, 0 },
+    /* T_WALL         */ { TILEF_SOLID,  BOUNCE_NORMAL, BOUNCE_SHORT,        0,        0,                0, 0 },
+    /* T_TITLE_SHADOW */ { 0,            0,             0,                   0,        0,                0, 0 },
+    /* T_TITLE_FILL   */ { 0,            0,             0,                   0,        0,                0, 0 }
 };
 
 /* ------------------------------------------------------------------ */
@@ -40,7 +47,7 @@ static const uint8_t tile_flags[] = {
 
 uint8_t stage[SCREEN_TILES_H][SCREEN_TILES_W];
 Enemy enemies[MAX_ENEMIES];
-SaveData save_data;
+static SaveData save_data;
 
 uint8_t game_mode = MODE_ADVENTURE;
 uint8_t selected_level = 0;
@@ -48,7 +55,7 @@ uint8_t current_level = 0;
 uint16_t panic_depth = 0;
 uint8_t level_world = 0;
 uint8_t coins = 0;
-uint8_t battery = 0;
+uint8_t key = 0;
 uint8_t bubble = 0;
 uint8_t switch_on = 1;
 uint8_t switch_cooldown = 0;
@@ -71,8 +78,54 @@ uint8_t stomp_ready = 1;
 uint8_t stomp_chain = 0;
 uint8_t invuln = 0;
 
-uint8_t feedback_kind = FEEDBACK_NONE;
-uint8_t feedback_timer = 0;
+static uint8_t feedback_kind = FEEDBACK_NONE;
+static uint8_t feedback_timer = 0;
+static uint8_t feedback_expired_flag = 0;
+
+/* ------------------------------------------------------------------ */
+/* HUD feedback module                                                */
+/*                                                                    */
+/* Private state above; callers use the accessors below. The module   */
+/* maps incoming GameEvents to the on-screen feedback banner          */
+/* (SHIELD/STOMP/CRACK), counts down the display timer, and surfaces  */
+/* an "expired this tick" flag so the HUD owner can mark itself dirty */
+/* on the frame the banner clears.                                    */
+/* ------------------------------------------------------------------ */
+
+void hud_feedback_on_event(uint8_t event) {
+    /* Only certain events register; STOMP/CRACK only register if no feedback
+       is currently active (preserves prior gating). SHIELD always supersedes. */
+    if (event == EVENT_SHIELD) {
+        feedback_kind = FEEDBACK_SHIELD;
+        feedback_timer = 36;
+    } else if (event == EVENT_STOMP) {
+        if (feedback_timer == 0) {
+            feedback_kind = FEEDBACK_STOMP;
+            feedback_timer = 18;
+        }
+    } else if (event == EVENT_CRACK) {
+        if (feedback_timer == 0) {
+            feedback_kind = FEEDBACK_CRACK;
+            feedback_timer = 18;
+        }
+    }
+    /* All other events: no-op for HUD feedback. */
+}
+
+void hud_feedback_tick(void) {
+    feedback_expired_flag = 0;
+    if (feedback_timer) {
+        feedback_timer--;
+        if (feedback_timer == 0u) {
+            feedback_kind = FEEDBACK_NONE;
+            feedback_expired_flag = 1;
+        }
+    }
+}
+
+uint8_t hud_feedback_active(void) { return feedback_timer != 0; }
+uint8_t hud_feedback_kind(void)   { return feedback_kind; }
+uint8_t hud_feedback_expired_this_tick(void) { return feedback_expired_flag; }
 
 /* ------------------------------------------------------------------ */
 /* Save / checksum                                                    */
@@ -100,6 +153,53 @@ void save_defaults(void) {
     save_data.checksum = checksum_save(&save_data);
 }
 
+uint8_t save_unlocked_count(void) {
+    return save_data.unlocked;
+}
+
+uint16_t save_best_time(uint8_t level) {
+    if (level >= NUM_ADVENTURE_LEVELS) return 0xffffu;
+    return save_data.best_time[level];
+}
+
+uint16_t save_panic_best(void) {
+    return save_data.panic_best;
+}
+
+void save_record_clear(uint8_t level, uint16_t time) {
+    if (level >= NUM_ADVENTURE_LEVELS) return;
+    if (time < save_data.best_time[level]) {
+        save_data.best_time[level] = time;
+    }
+    save_data.checksum = checksum_save(&save_data);
+}
+
+void save_unlock_through(uint8_t level) {
+    if ((uint8_t)(level + 1u) >= NUM_ADVENTURE_LEVELS) return;
+    if (save_data.unlocked < (uint8_t)(level + 2u)) {
+        save_data.unlocked = (uint8_t)(level + 2u);
+        save_data.checksum = checksum_save(&save_data);
+    }
+}
+
+void save_record_panic(uint16_t depth) {
+    if (depth > save_data.panic_best) save_data.panic_best = depth;
+    save_data.checksum = checksum_save(&save_data);
+}
+
+uint8_t save_validate(void) {
+    if (save_data.magic != SAVE_MAGIC) return 0;
+    if (save_data.version != SAVE_VERSION) return 0;
+    if (save_data.checksum != checksum_save(&save_data)) return 0;
+    if (save_data.unlocked == 0u || save_data.unlocked > NUM_ADVENTURE_LEVELS) return 0;
+    return 1;
+}
+
+void save_data_blob(uint8_t **out_ptr, uint16_t *out_len) {
+    *out_ptr = (uint8_t *)&save_data;
+    *out_len = (uint16_t)sizeof(SaveData);
+}
+
 /* ------------------------------------------------------------------ */
 /* Tile queries                                                       */
 /* ------------------------------------------------------------------ */
@@ -116,7 +216,7 @@ uint8_t bg_for_tile(uint8_t t) {
 
 uint8_t tile_has_flag(uint8_t t, uint8_t flag) {
     if (t >= TILE_COUNT) return 0;
-    return (uint8_t)((tile_flags[t] & flag) != 0u);
+    return (uint8_t)((tile_table[t].flags & flag) != 0u);
 }
 
 uint8_t is_solid_tile(uint8_t t) {
@@ -142,7 +242,8 @@ uint8_t tile_at_fixed(int16_t fx, int16_t fy) {
 }
 
 uint8_t is_stomp_breakable(uint8_t tile) {
-    return (uint8_t)((tile == T_CRACK) || (tile == T_ROCK));
+    if (tile >= TILE_COUNT) return 0;
+    return tile_table[tile].breakable_by_stomp;
 }
 
 /* ------------------------------------------------------------------ */
@@ -173,13 +274,6 @@ void set_spawn_px(uint8_t x, uint8_t y) {
     stomping = 0;
     stomp_ready = 1;
     stomp_chain = 0;
-}
-
-void add_column(uint8_t x, uint8_t y, uint8_t h, uint8_t tile) {
-    uint8_t i;
-    for (i = 0; i < h; i++) {
-        if (((uint8_t)(y + i) < SCREEN_TILES_H) && (x < SCREEN_TILES_W)) stage[y + i][x] = tile;
-    }
 }
 
 void add_coin_line(uint8_t x, uint8_t y, uint8_t w) {
@@ -214,6 +308,11 @@ void add_stomp_route(uint8_t x, uint8_t y, uint8_t w) {
     if (y > 3u) add_coin_line(x, (uint8_t)(y - 1u), w);
 }
 
+void add_route_step(uint8_t x, uint8_t y, uint8_t w, uint8_t tile) {
+    add_platform_if_empty(x, y, w, tile);
+    if (y > 3u) add_coin_line(x, (uint8_t)(y - 1u), w);
+}
+
 void place_marker_down(uint8_t x, uint8_t y) {
     uint8_t my;
     if ((x >= SCREEN_TILES_W) || (y <= (uint8_t)(CEILING_Y + 1u))) return;
@@ -227,14 +326,39 @@ void place_exit(uint8_t x, uint8_t y) {
     place_marker_down(x, y);
 }
 
-void place_battery(uint8_t x, uint8_t y) {
+void place_key(uint8_t x, uint8_t y) {
     if ((x >= SCREEN_TILES_W) || (y >= SCREEN_TILES_H)) return;
-    stage[y][x] = T_BATTERY;
+    stage[y][x] = T_KEY;
     place_marker_down(x, y);
 }
 
 void clear_if_danger(uint8_t x, uint8_t y) {
     if (is_danger_tile(stage[y][x])) stage[y][x] = T_EMPTY;
+}
+
+static void clear_if_platform(uint8_t x, uint8_t y) {
+    if (stage[y][x] == T_SOLID ||
+        stage[y][x] == T_CRACK ||
+        stage[y][x] == T_TOGGLE ||
+        stage[y][x] == T_CONV_L ||
+        stage[y][x] == T_CONV_R ||
+        stage[y][x] == T_MOVING ||
+        stage[y][x] == T_ROCK) {
+        stage[y][x] = T_EMPTY;
+    }
+}
+
+static uint8_t is_pocket_wall(uint8_t tile) {
+    return (uint8_t)(tile == T_SOLID ||
+                     tile == T_CRACK ||
+                     tile == T_SPRING ||
+                     tile == T_SWITCH ||
+                     tile == T_TOGGLE ||
+                     tile == T_CONV_L ||
+                     tile == T_CONV_R ||
+                     tile == T_MOVING ||
+                     tile == T_ROCK ||
+                     tile == T_WALL);
 }
 
 void soften_exit(void) {
@@ -245,6 +369,37 @@ void soften_exit(void) {
     clear_if_danger(17, 15);
     clear_if_danger(18, 15);
     place_marker_down(18, 16);
+}
+
+void unpin_goal_tiles(void) {
+    uint8_t x;
+    uint8_t y;
+    for (y = (uint8_t)(CEILING_Y + 1u); y < 17u; y++) {
+        for (x = 1; x < 19u; x++) {
+            if (stage[y][x] == T_KEY) {
+                clear_if_platform((uint8_t)(x - 1u), y);
+                clear_if_platform((uint8_t)(x + 1u), y);
+                clear_if_platform(x, (uint8_t)(y - 1u));
+            }
+        }
+    }
+}
+
+void fill_one_tile_pockets(void) {
+    uint8_t x;
+    uint8_t y;
+    uint8_t tile;
+    for (y = (uint8_t)(CEILING_Y + 1u); y < 17u; y++) {
+        for (x = 1; x < 19u; x++) {
+            tile = stage[y][x];
+            if ((tile == T_EMPTY || tile == T_COIN || tile == T_ARROW_D || tile == T_ARROW_R) &&
+                is_pocket_wall(stage[(uint8_t)(y + 1u)][x]) &&
+                is_pocket_wall(stage[y][(uint8_t)(x - 1u)]) &&
+                is_pocket_wall(stage[y][(uint8_t)(x + 1u)])) {
+                stage[y][x] = T_SOLID;
+            }
+        }
+    }
 }
 
 uint16_t rng_step(uint16_t seed) {
@@ -269,7 +424,7 @@ void reset_common(void) {
     switch_on = 1;
     switch_cooldown = 0;
     coins = 0;
-    battery = 0;
+    key = 0;
     bubble = 0;
     invuln = 0;
     stomping = 0;
@@ -321,6 +476,11 @@ void enrich_adventure_room(uint8_t world, uint8_t local) {
     uint8_t lower_tile;
     uint8_t rock_x;
     uint8_t rock_y;
+    uint8_t mid_x;
+    uint8_t mid_y;
+    uint8_t catch_x;
+    uint8_t catch_y;
+    uint8_t accent_tile;
 
     if ((world == 0u) && (local < 8u)) return;
 
@@ -331,17 +491,29 @@ void enrich_adventure_room(uint8_t world, uint8_t local) {
     lower_y = (uint8_t)(8u + ((local >> 1u) & 1u));
     rock_x = (uint8_t)(2u + ((local + world) & 3u));
     rock_y = (uint8_t)(9u + ((local >> 2u) & 1u));
+    mid_x = (uint8_t)(6u + ((local + world) & 3u));
+    mid_y = (uint8_t)(11u + ((local + world) & 1u));
+    catch_x = (uint8_t)(14u - ((local + world) & 2u));
+    catch_y = (uint8_t)(12u + (local & 1u));
     high_tile = T_SOLID;
     lower_tile = T_SOLID;
+    accent_tile = T_SOLID;
 
     if (world == 0u) {
         high_tile = T_CRACK;
+        accent_tile = T_CRACK;
     } else if (world == 3u) {
         high_tile = (local & 1u) ? T_CONV_R : T_CONV_L;
         lower_tile = (local & 2u) ? T_CONV_L : T_CONV_R;
+        accent_tile = (local & 1u) ? T_CONV_R : T_CONV_L;
     } else if (world >= 4u) {
         high_tile = (local & 1u) ? T_CRACK : T_CONV_R;
         lower_tile = (local & 2u) ? T_TOGGLE : T_CRACK;
+        accent_tile = (local & 2u) ? T_CRACK : T_CONV_R;
+    } else if (world == 1u) {
+        accent_tile = T_TOGGLE;
+    } else if (world == 2u) {
+        accent_tile = T_SOLID;
     }
 
     add_tile_if_empty((uint8_t)(4u + lane), 5, T_COIN);
@@ -350,6 +522,8 @@ void enrich_adventure_room(uint8_t world, uint8_t local) {
     add_platform_if_empty(high_x, high_y, 3, high_tile);
     add_coin_line((uint8_t)(high_x + 1u), (uint8_t)(high_y - 1u), 2);
     add_platform_if_empty((uint8_t)(lower_x - 1u), lower_y, 3, lower_tile);
+    add_route_step(mid_x, mid_y, 2, accent_tile);
+    add_route_step(catch_x, catch_y, 2, (world == 1u) ? T_TOGGLE : T_SOLID);
 
     if (world == 0u) {
         add_tile_if_empty(6, 15, T_SPRING);
@@ -392,21 +566,20 @@ void build_tutorial_room(uint8_t local) {
         add_platform(2, 14, 5, T_SOLID);
         add_platform(8, 12, 4, T_SOLID);
         add_platform(13, 10, 5, T_SOLID);
-        place_battery(4, 13);
+        place_key(4, 13);
         add_coin_line(8, 11, 4);
         stage[13][7] = T_ARROW_R;
     } else if (local == 1u) {
-        add_platform(2, 14, 4, T_SOLID);
-        add_column(5, 12, 5, T_SOLID);
-        add_column(13, 12, 5, T_SOLID);
-        add_platform(6, 12, 7, T_CRACK);
-        place_battery(9, 15);
-        add_coin_line(7, 10, 5);
-        stage[11][9] = T_ARROW_D;
+        add_platform(2, 14, 5, T_SOLID);
+        add_platform(7, 12, 5, T_CRACK);
+        add_platform(13, 10, 4, T_SOLID);
+        place_key(9, 11);
+        add_coin_line(8, 10, 4);
+        stage[13][7] = T_ARROW_R;
     } else if (local == 2u) {
         add_platform(2, 13, 6, T_SOLID);
         add_platform(11, 11, 5, T_SOLID);
-        place_battery(3, 12);
+        place_key(3, 12);
         add_coin_line(12, 10, 3);
         stage[16][17] = T_ARROW_R;
     } else if (local == 3u) {
@@ -414,33 +587,33 @@ void build_tutorial_room(uint8_t local) {
         add_platform(12, 14, 5, T_SOLID);
         add_platform(7, 10, 4, T_SOLID);
         add_hazard_line(7, 16, 5, T_SPIKE);
-        place_battery(8, 9);
+        place_key(8, 9);
         add_coin_line(13, 13, 3);
     } else if (local == 4u) {
         add_platform(2, 14, 4, T_SOLID);
         stage[14][6] = T_SPRING;
         add_platform(11, 7, 5, T_SOLID);
-        place_battery(14, 6);
+        place_key(14, 6);
         add_coin_line(12, 8, 3);
     } else if (local == 5u) {
         add_platform(3, 13, 5, T_CRACK);
         add_platform(10, 11, 5, T_CRACK);
         add_platform(4, 16, 4, T_SOLID);
-        place_battery(12, 10);
+        place_key(12, 10);
         add_coin_line(4, 12, 3);
         stage[12][12] = T_ARROW_D;
     } else if (local == 6u) {
         add_platform(2, 14, 5, T_SOLID);
         add_platform(9, 12, 4, T_SOLID);
-        place_battery(14, 15);
+        place_key(14, 15);
         add_coin_line(10, 11, 3);
         add_enemy(9, 16, 1);
     } else {
         set_room_switch(0);
         add_platform(2, 14, 4, T_SOLID);
-        stage[15][4] = T_SWITCH;
+        stage[14][4] = T_SWITCH;
         add_platform(8, 12, 6, T_TOGGLE);
-        place_battery(13, 11);
+        place_key(13, 11);
         add_coin_line(9, 11, 3);
     }
 }
@@ -453,45 +626,45 @@ void build_intro_room(uint8_t local) {
         add_platform(9, 12, 4, T_SOLID);
         add_platform(14, 9, 4, T_SOLID);
         add_hazard_line(7, 16, 3, T_SPIKE);
-        place_battery(15, 8);
+        place_key(15, 8);
         add_coin_line(9, 11, 3);
     } else if (route == 1u) {
         add_platform(2, 15, 4, T_SOLID);
         stage[15][7] = T_SPRING;
         add_platform(11, 8, 5, T_SOLID);
         add_hazard_line(9, 16, 4, T_SPIKE);
-        place_battery(13, 7);
+        place_key(13, 7);
     } else if (route == 2u) {
         add_platform(2, 13, 5, T_SOLID);
         add_platform(8, 10, 5, T_CRACK);
         add_platform(13, 13, 4, T_SOLID);
-        place_battery(10, 9);
+        place_key(10, 9);
         add_coin_line(13, 12, 3);
     } else if (route == 3u) {
         add_platform(2, 14, 5, T_SOLID);
         add_platform(8, 11, 4, T_SOLID);
         add_platform(13, 14, 4, T_SOLID);
-        place_battery(9, 10);
+        place_key(9, 10);
         add_enemy(12, 16, -1);
     } else if (route == 4u) {
         set_room_switch(0);
-        stage[15][4] = T_SWITCH;
         add_platform(2, 14, 4, T_SOLID);
+        stage[14][4] = T_SWITCH;
         add_platform(7, 11, 4, T_TOGGLE);
         add_platform(13, 9, 4, T_SOLID);
-        place_battery(15, 8);
+        place_key(15, 8);
     } else if (route == 5u) {
         add_platform(2, 15, 4, T_CONV_R);
         add_platform(8, 12, 4, T_SOLID);
         add_platform(13, 10, 4, T_SOLID);
         stage[13][6] = T_SPIKE;
-        place_battery(14, 9);
+        place_key(14, 9);
         add_coin_line(8, 11, 4);
     } else if (route == 6u) {
         add_platform(2, 14, 5, T_SOLID);
         add_platform(9, 12, 5, T_CRACK);
         stage[15][15] = T_SPRING;
-        place_battery(11, 11);
+        place_key(11, 11);
         add_hazard_line(7, 16, 3, T_SPIKE);
     } else {
         add_platform(2, 14, 5, T_SOLID);
@@ -499,7 +672,7 @@ void build_intro_room(uint8_t local) {
         add_platform(13, 13, 4, T_SOLID);
         stage[9][14] = T_BUBBLE;
         add_hazard_line(9, 16, 6, T_WATER);
-        place_battery(9, 9);
+        place_key(9, 9);
         add_enemy(14, 16, -1);
     }
 }
@@ -509,28 +682,28 @@ void build_switch_room(uint8_t local) {
     route = (uint8_t)(local & 3u);
     set_room_switch((uint8_t)((local & 1u) == 0u));
     add_platform(2, 14, 4, T_SOLID);
-    stage[(local & 4u) ? 13 : 15][4] = T_SWITCH;
+    stage[(local & 4u) ? 13 : 14][4] = T_SWITCH;
     if (route == 0u) {
         add_platform(7, 12, 6, T_TOGGLE);
         add_platform(14, 9, 4, T_SOLID);
-        place_battery(15, 8);
+        place_key(15, 8);
         add_coin_line(8, 11, 4);
     } else if (route == 1u) {
         add_platform(7, 10, 4, T_SOLID);
         add_platform(12, 13, 5, T_TOGGLE);
         add_hazard_line(8, 16, 5, T_SPIKE);
-        place_battery(8, 9);
+        place_key(8, 9);
     } else if (route == 2u) {
         add_platform(6, 13, 4, T_TOGGLE);
         add_platform(12, 10, 4, T_TOGGLE);
         stage[15][15] = T_SPRING;
-        place_battery(13, 9);
+        place_key(13, 9);
         add_coin_line(6, 12, 3);
     } else {
         add_platform(6, 11, 5, T_SOLID);
         add_platform(12, 8, 4, T_TOGGLE);
         add_hazard_line(7, 16, 4, T_SPIKE);
-        place_battery(13, 7);
+        place_key(13, 7);
         add_enemy(11, 16, 1);
     }
     if (local >= 8u) add_enemy((uint8_t)(8u + (local & 3u)), 16, (local & 1u) ? -1 : 1);
@@ -544,20 +717,20 @@ void build_water_room(uint8_t local) {
         add_hazard_line(6, 16, 8, T_WATER);
         add_platform(8, 12, 4, T_SOLID);
         stage[12][3] = T_BUBBLE;
-        place_battery(9, 11);
+        place_key(9, 11);
         add_coin_line(11, 11, 3);
     } else if (route == 1u) {
         add_hazard_line(5, 16, 5, T_WATER);
         add_hazard_line(13, 16, 3, T_WATER);
         stage[10][5] = T_FAN_R;
         add_platform(10, 11, 4, T_SOLID);
-        place_battery(12, 10);
+        place_key(12, 10);
     } else if (route == 2u) {
         add_hazard_line(6, 16, 9, T_WATER);
         stage[13][4] = T_BUBBLE;
         stage[9][15] = T_FAN_L;
         add_platform(8, 9, 4, T_SOLID);
-        place_battery(9, 8);
+        place_key(9, 8);
         add_enemy(13, 16, -1);
     } else {
         add_hazard_line(4, 16, 4, T_WATER);
@@ -566,7 +739,7 @@ void build_water_room(uint8_t local) {
         stage[8][14] = (local & 4u) ? T_FAN_L : T_FAN_R;
         add_platform(10, 8, 5, T_SOLID);
         stage[12][3] = T_BUBBLE;
-        place_battery(12, 7);
+        place_key(12, 7);
     }
     if (local >= 8u) add_hazard_line((uint8_t)(7u + (local & 3u)), 15, 2, T_SPIKE);
 }
@@ -578,24 +751,24 @@ void build_motion_room(uint8_t local) {
     if (route == 0u) {
         add_platform(8, 12, 5, T_CONV_R);
         add_platform(14, 9, 4, T_SOLID);
-        place_battery(15, 8);
+        place_key(15, 8);
     } else if (route == 1u) {
         add_platform(7, 10, 4, T_CONV_L);
         add_platform(12, 13, 5, T_CONV_R);
         add_hazard_line(6, 16, 4, T_SPIKE);
-        place_battery(8, 9);
+        place_key(8, 9);
     } else if (route == 2u) {
         add_platform(5, 12, 4, T_SOLID);
         add_platform(13, 8, 4, T_CONV_L);
         stage[14][10] = T_FAN_R;
-        place_battery(14, 7);
+        place_key(14, 7);
         add_coin_line(5, 11, 3);
     } else {
         add_platform(4, 11, 3, T_CRACK);
         add_platform(12, 10, 4, T_CONV_R);
         stage[13][15] = T_SPRING;
         add_hazard_line(8, 16, 4, T_SPIKE);
-        place_battery(13, 9);
+        place_key(13, 9);
     }
     if (local >= 4u) {
         add_moving_platform((uint8_t)(6u + (local & 3u)),
@@ -612,56 +785,56 @@ void build_mixed_room(uint8_t local) {
     set_room_switch((uint8_t)((local & 1u) == 0u));
     add_platform(2, 14, 4, T_SOLID);
     if (route == 0u) {
-        stage[15][4] = T_SWITCH;
+        stage[14][4] = T_SWITCH;
         add_platform(7, 12, 4, T_TOGGLE);
         add_platform(12, 9, 4, T_CRACK);
         add_hazard_line(8, 16, 5, T_SPIKE);
-        place_battery(13, 8);
+        place_key(13, 8);
     } else if (route == 1u) {
         add_hazard_line(5, 16, 8, T_WATER);
         stage[12][3] = T_BUBBLE;
         stage[10][14] = T_FAN_L;
         add_platform(9, 10, 4, T_CONV_R);
-        place_battery(10, 9);
+        place_key(10, 9);
         add_enemy(14, 16, -1);
     } else if (route == 2u) {
         stage[14][6] = T_SPRING;
         add_platform(9, 9, 5, T_TOGGLE);
         stage[13][4] = T_SWITCH;
         add_hazard_line(7, 16, 4, T_SPIKE);
-        place_battery(11, 8);
+        place_key(11, 8);
     } else if (route == 3u) {
         add_platform(5, 12, 4, T_CRACK);
         add_platform(12, 10, 5, T_CONV_L);
         add_hazard_line(7, 16, 3, T_WATER);
-        place_battery(14, 9);
+        place_key(14, 9);
         add_enemy(9, 16, 1);
     } else if (route == 4u) {
         add_hazard_line(6, 16, 6, T_SPIKE);
         stage[13][3] = T_BUBBLE;
         add_moving_platform(8, 10, 3, 1);
-        place_battery(9, 9);
+        place_key(9, 9);
     } else if (route == 5u) {
         add_platform(7, 13, 4, T_CONV_R);
         stage[11][15] = T_FAN_L;
         add_platform(12, 8, 4, T_CRACK);
         add_hazard_line(5, 16, 4, T_WATER);
-        place_battery(14, 7);
+        place_key(14, 7);
         add_enemy(13, 16, -1);
     } else if (route == 6u) {
-        stage[15][4] = T_SWITCH;
+        stage[14][4] = T_SWITCH;
         add_platform(7, 12, 3, T_TOGGLE);
         add_platform(11, 9, 4, T_TOGGLE);
         stage[15][14] = T_SPRING;
         add_hazard_line(7, 16, 5, T_WATER);
-        place_battery(12, 8);
+        place_key(12, 8);
     } else {
         add_platform(6, 12, 4, T_CRACK);
         add_platform(12, 11, 5, T_CONV_R);
         add_hazard_line(5, 16, 4, T_SPIKE);
         add_hazard_line(12, 16, 4, T_WATER);
         stage[10][4] = T_BUBBLE;
-        place_battery(13, 10);
+        place_key(13, 10);
         add_enemy(8, 16, 1);
         add_enemy(14, 16, -1);
     }
@@ -687,6 +860,8 @@ void generate_adventure(uint8_t level) {
         build_mixed_room(local);
     }
     enrich_adventure_room(world, local);
+    unpin_goal_tiles();
+    fill_one_tile_pockets();
     soften_exit();
 }
 
@@ -696,8 +871,8 @@ void generate_panic(uint16_t depth) {
     uint8_t danger;
     uint8_t x;
     uint8_t y;
-    uint8_t battery_x;
-    uint8_t battery_y;
+    uint8_t key_x;
+    uint8_t key_y;
     uint8_t support_x;
     seed = (uint16_t)(depth * 97u + 31u);
     danger = (uint8_t)(depth / 10u);
@@ -716,11 +891,11 @@ void generate_panic(uint16_t depth) {
         add_platform(x, y, (uint8_t)(3u + (seed % 4u)), (i == 2u) ? T_TOGGLE : ((depth & 3u) == i) ? T_CRACK : T_SOLID);
     }
 
-    battery_x = (uint8_t)(5u + (depth % 10u));
-    battery_y = (uint8_t)(4u + (depth & 1u));
-    support_x = (uint8_t)(battery_x - 1u);
-    place_battery(battery_x, battery_y);
-    add_platform_if_empty(support_x, (uint8_t)(battery_y + 1u), 3, (depth & 2u) ? T_CRACK : T_SOLID);
+    key_x = (uint8_t)(5u + (depth % 10u));
+    key_y = (uint8_t)(4u + (depth & 1u));
+    support_x = (uint8_t)(key_x - 1u);
+    place_key(key_x, key_y);
+    add_platform_if_empty(support_x, (uint8_t)(key_y + 1u), 3, (depth & 2u) ? T_CRACK : T_SOLID);
     stage[13][4] = T_SWITCH;
     stage[8][15] = (depth & 1u) ? T_FAN_L : T_FAN_R;
     stage[12][6] = T_BUBBLE;
@@ -741,5 +916,7 @@ void generate_panic(uint16_t depth) {
     if (danger >= 2u) {
         add_moving_platform((uint8_t)(7u + (depth & 3u)), 7, 3, 1);
     }
+    unpin_goal_tiles();
+    fill_one_tile_pockets();
     soften_exit();
 }

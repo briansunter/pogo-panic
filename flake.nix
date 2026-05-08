@@ -94,7 +94,12 @@
             pkgs.bun
             pkgs.nodejs_22
             pkgs.gnumake
-            gbdk-2020
+            pkgs.gcc       # provides cc + gcov for `make test-c` / `make levels` / coverage
+            # NB: gbdk-2020 is intentionally NOT in `packages`. mkShell would
+            # add its include/ to NIX_CFLAGS_COMPILE, causing the host cc to
+            # pick up GBDK's <string.h> / <stdio.h> instead of glibc's. We
+            # expose GBDK only via PATH + GBDK_HOME below; lcc finds its own
+            # headers/libs through GBDK_HOME.
           ];
 
           shellHook = ''
@@ -102,9 +107,14 @@
             export PATH="${gbdk-2020}/bin:$PATH"
             echo "Pocket Pogo Panic dev shell"
             echo "  GBDK_HOME=$GBDK_HOME"
-            echo "  bun $(bun --version), node $(node --version), make $(make --version | head -n1)"
-            echo "Build: bun install && make && bun run build:web"
-            echo "Dev:   bun run dev"
+            echo "  bun $(bun --version), node $(node --version), make $(make --version | head -n1), $(cc --version | head -n1)"
+            echo ""
+            echo "Build the ROM:        make"
+            echo "Run host C tests:     make test-c"
+            echo "Regenerate levels:    make levels"
+            echo "Install JS deps:      bun install"
+            echo "Run all tests:        bun run test"
+            echo "Browser dev server:   bun run dev"
           '';
         };
       });

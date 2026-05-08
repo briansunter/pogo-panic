@@ -1,0 +1,927 @@
+        -:    0:Source:src-rom/game-logic.c
+        -:    0:Graph:test-artifacts/coverage/test-logic-game-logic.gcno
+        -:    0:Data:test-artifacts/coverage/test-logic-game-logic.gcda
+        -:    0:Runs:1
+        -:    0:Programs:1
+        -:    1:#include <stddef.h>
+        -:    2:#include <stdint.h>
+        -:    3:#include <string.h>
+        -:    4:#include "game-logic.h"
+        -:    5:
+        -:    6:/* ------------------------------------------------------------------ */
+        -:    7:/* Tile behavior table                                                */
+        -:    8:/*                                                                    */
+        -:    9:/* One row per TileType. All per-tile gameplay rules live here so that */
+        -:   10:/* adding a new tile is mostly a matter of adding an enum value and a  */
+        -:   11:/* row below. Predicates (tile_has_flag, is_solid_tile, is_danger_tile,*/
+        -:   12:/* is_stomp_breakable) and call sites (do_bounce, collect_tiles,       */
+        -:   13:/* apply_player_world_forces) read this table instead of switching on  */
+        -:   14:/* the tile id.                                                        */
+        -:   15:/* ------------------------------------------------------------------ */
+        -:   16:
+        -:   17:const TileBehavior tile_table[TILE_COUNT] = {
+        -:   18:    /* T_EMPTY        */ { 0,            0,             0,                   0,        0,                0, 0 },
+        -:   19:    /* T_SOLID        */ { TILEF_SOLID,  BOUNCE_NORMAL, BOUNCE_SHORT,        0,        0,                0, 0 },
+        -:   20:    /* T_CRACK        */ { TILEF_SOLID,  BOUNCE_NORMAL, BOUNCE_SHORT,        0,        0,                0, 1 },
+        -:   21:    /* T_SPRING       */ { TILEF_SOLID,  BOUNCE_SPRING, BOUNCE_SPRING_SHORT, 0,        0,                0, 0 },
+        -:   22:    /* T_SPIKE        */ { TILEF_DANGER, 0,             0,                   0,        0,                0, 0 },
+        -:   23:    /* T_COIN         */ { 0,            0,             0,                   0,        EVENT_COIN + 1,   1, 0 },
+        -:   24:    /* T_KEY          */ { 0,            0,             0,                   0,        EVENT_KEY + 1,   1, 0 },
+        -:   25:    /* T_EXIT         */ { 0,            0,             0,                   0,        0,                0, 0 },
+        -:   26:    /* T_SWITCH       */ { TILEF_SOLID,  BOUNCE_NORMAL, BOUNCE_SHORT,        0,        0,                0, 0 },
+        -:   27:    /* T_TOGGLE       */ { TILEF_SOLID,  BOUNCE_NORMAL, BOUNCE_SHORT,        0,        0,                0, 0 },
+        -:   28:    /* T_FAN_L        */ { 0,            0,             0,                   -3,       0,                0, 0 },
+        -:   29:    /* T_FAN_R        */ { 0,            0,             0,                   3,        0,                0, 0 },
+        -:   30:    /* T_CONV_L       */ { TILEF_SOLID,  BOUNCE_NORMAL, BOUNCE_SHORT,        -FIX(1),  0,                0, 0 },
+        -:   31:    /* T_CONV_R       */ { TILEF_SOLID,  BOUNCE_NORMAL, BOUNCE_SHORT,        FIX(1),   0,                0, 0 },
+        -:   32:    /* T_WATER        */ { TILEF_DANGER, 0,             0,                   0,        0,                0, 0 },
+        -:   33:    /* T_BUBBLE       */ { 0,            0,             0,                   0,        EVENT_BUBBLE + 1, 1, 0 },
+        -:   34:    /* T_MOVING       */ { TILEF_SOLID,  BOUNCE_NORMAL, BOUNCE_SHORT,        0,        0,                0, 0 },
+        -:   35:    /* T_ROCK         */ { TILEF_SOLID,  BOUNCE_NORMAL, BOUNCE_SHORT,        0,        0,                0, 1 },
+        -:   36:    /* T_TOGGLE_OFF   */ { 0,            0,             0,                   0,        0,                0, 0 },
+        -:   37:    /* T_ARROW_D      */ { 0,            0,             0,                   0,        0,                0, 0 },
+        -:   38:    /* T_ARROW_R      */ { 0,            0,             0,                   0,        0,                0, 0 },
+        -:   39:    /* T_WALL         */ { TILEF_SOLID,  BOUNCE_NORMAL, BOUNCE_SHORT,        0,        0,                0, 0 },
+        -:   40:    /* T_TITLE_SHADOW */ { 0,            0,             0,                   0,        0,                0, 0 },
+        -:   41:    /* T_TITLE_FILL   */ { 0,            0,             0,                   0,        0,                0, 0 }
+        -:   42:};
+        -:   43:
+        -:   44:/* ------------------------------------------------------------------ */
+        -:   45:/* Globals                                                            */
+        -:   46:/* ------------------------------------------------------------------ */
+        -:   47:
+        -:   48:uint8_t stage[SCREEN_TILES_H][SCREEN_TILES_W];
+        -:   49:Enemy enemies[MAX_ENEMIES];
+        -:   50:static SaveData save_data;
+        -:   51:
+        -:   52:uint8_t game_mode = MODE_ADVENTURE;
+        -:   53:uint8_t selected_level = 0;
+        -:   54:uint8_t current_level = 0;
+        -:   55:uint16_t panic_depth = 0;
+        -:   56:uint8_t level_world = 0;
+        -:   57:uint8_t coins = 0;
+        -:   58:uint8_t key = 0;
+        -:   59:uint8_t bubble = 0;
+        -:   60:uint8_t switch_on = 1;
+        -:   61:uint8_t switch_cooldown = 0;
+        -:   62:uint16_t level_time = 0;
+        -:   63:uint8_t enemy_count = 0;
+        -:   64:
+        -:   65:uint8_t moving_active = 0;
+        -:   66:uint8_t moving_x = 0;
+        -:   67:uint8_t moving_y = 0;
+        -:   68:uint8_t moving_w = 0;
+        -:   69:int8_t moving_dir = 1;
+        -:   70:uint8_t moving_tick = 0;
+        -:   71:
+        -:   72:int16_t player_x = 0;
+        -:   73:int16_t player_y = 0;
+        -:   74:int16_t player_vx = 0;
+        -:   75:int16_t player_vy = 0;
+        -:   76:uint8_t stomping = 0;
+        -:   77:uint8_t stomp_ready = 1;
+        -:   78:uint8_t stomp_chain = 0;
+        -:   79:uint8_t invuln = 0;
+        -:   80:
+        -:   81:static uint8_t feedback_kind = FEEDBACK_NONE;
+        -:   82:static uint8_t feedback_timer = 0;
+        -:   83:static uint8_t feedback_expired_flag = 0;
+        -:   84:
+        -:   85:/* ------------------------------------------------------------------ */
+        -:   86:/* HUD feedback module                                                */
+        -:   87:/*                                                                    */
+        -:   88:/* Private state above; callers use the accessors below. The module   */
+        -:   89:/* maps incoming GameEvents to the on-screen feedback banner          */
+        -:   90:/* (SHIELD/STOMP/CRACK), counts down the display timer, and surfaces  */
+        -:   91:/* an "expired this tick" flag so the HUD owner can mark itself dirty */
+        -:   92:/* on the frame the banner clears.                                    */
+        -:   93:/* ------------------------------------------------------------------ */
+        -:   94:
+        7:   95:void hud_feedback_on_event(uint8_t event) {
+        -:   96:    /* Only certain events register; STOMP/CRACK only register if no feedback
+        -:   97:       is currently active (preserves prior gating). SHIELD always supersedes. */
+        7:   98:    if (event == EVENT_SHIELD) {
+        2:   99:        feedback_kind = FEEDBACK_SHIELD;
+        2:  100:        feedback_timer = 36;
+        7:  101:    } else if (event == EVENT_STOMP) {
+        1:  102:        if (feedback_timer == 0) {
+        1:  103:            feedback_kind = FEEDBACK_STOMP;
+        1:  104:            feedback_timer = 18;
+        1:  105:        }
+        5:  106:    } else if (event == EVENT_CRACK) {
+        2:  107:        if (feedback_timer == 0) {
+        1:  108:            feedback_kind = FEEDBACK_CRACK;
+        1:  109:            feedback_timer = 18;
+        1:  110:        }
+        2:  111:    }
+        -:  112:    /* All other events: no-op for HUD feedback. */
+        7:  113:}
+        -:  114:
+       91:  115:void hud_feedback_tick(void) {
+       91:  116:    feedback_expired_flag = 0;
+       91:  117:    if (feedback_timer) {
+       90:  118:        feedback_timer--;
+       90:  119:        if (feedback_timer == 0u) {
+        3:  120:            feedback_kind = FEEDBACK_NONE;
+        3:  121:            feedback_expired_flag = 1;
+        3:  122:        }
+       90:  123:    }
+       91:  124:}
+        -:  125:
+        6:  126:uint8_t hud_feedback_active(void) { return feedback_timer != 0; }
+        5:  127:uint8_t hud_feedback_kind(void)   { return feedback_kind; }
+       19:  128:uint8_t hud_feedback_expired_this_tick(void) { return feedback_expired_flag; }
+        -:  129:
+        -:  130:/* ------------------------------------------------------------------ */
+        -:  131:/* Save / checksum                                                    */
+        -:  132:/* ------------------------------------------------------------------ */
+        -:  133:
+       23:  134:uint8_t checksum_save(const SaveData *data) {
+        -:  135:    const uint8_t *raw;
+        -:  136:    uint16_t i;
+        -:  137:    uint8_t sum;
+       23:  138:    raw = (const uint8_t *)data;
+       23:  139:    sum = 0x5au;
+     3841:  140:    for (i = 0; i < (uint16_t)offsetof(SaveData, checksum); i++) {
+     3818:  141:        sum = (uint8_t)((sum << 1) ^ (sum >> 7) ^ raw[i]);
+     3818:  142:    }
+       23:  143:    return sum;
+        -:  144:}
+        -:  145:
+        3:  146:void save_defaults(void) {
+        -:  147:    uint8_t i;
+        3:  148:    save_data.magic = SAVE_MAGIC;
+        3:  149:    save_data.version = SAVE_VERSION;
+        3:  150:    save_data.unlocked = 1;
+        3:  151:    save_data.panic_best = 0;
+      243:  152:    for (i = 0; i < NUM_ADVENTURE_LEVELS; i++) save_data.best_time[i] = 0xffffu;
+        3:  153:    save_data.checksum = checksum_save(&save_data);
+        3:  154:}
+        -:  155:
+        5:  156:uint8_t save_unlocked_count(void) {
+        5:  157:    return save_data.unlocked;
+        -:  158:}
+        -:  159:
+       85:  160:uint16_t save_best_time(uint8_t level) {
+       85:  161:    if (level >= NUM_ADVENTURE_LEVELS) return 0xffffu;
+       83:  162:    return save_data.best_time[level];
+       85:  163:}
+        -:  164:
+        4:  165:uint16_t save_panic_best(void) {
+        4:  166:    return save_data.panic_best;
+        -:  167:}
+        -:  168:
+        5:  169:void save_record_clear(uint8_t level, uint16_t time) {
+        5:  170:    if (level >= NUM_ADVENTURE_LEVELS) return;
+        4:  171:    if (time < save_data.best_time[level]) {
+        3:  172:        save_data.best_time[level] = time;
+        3:  173:    }
+        4:  174:    save_data.checksum = checksum_save(&save_data);
+        5:  175:}
+        -:  176:
+        2:  177:void save_unlock_through(uint8_t level) {
+        2:  178:    if ((uint8_t)(level + 1u) >= NUM_ADVENTURE_LEVELS) return;
+        1:  179:    if (save_data.unlocked < (uint8_t)(level + 2u)) {
+        1:  180:        save_data.unlocked = (uint8_t)(level + 2u);
+        1:  181:        save_data.checksum = checksum_save(&save_data);
+        1:  182:    }
+        2:  183:}
+        -:  184:
+        3:  185:void save_record_panic(uint16_t depth) {
+        3:  186:    if (depth > save_data.panic_best) save_data.panic_best = depth;
+        3:  187:    save_data.checksum = checksum_save(&save_data);
+        3:  188:}
+        -:  189:
+       13:  190:uint8_t save_validate(void) {
+       13:  191:    if (save_data.magic != SAVE_MAGIC) return 0;
+       12:  192:    if (save_data.version != SAVE_VERSION) return 0;
+       12:  193:    if (save_data.checksum != checksum_save(&save_data)) return 0;
+       12:  194:    if (save_data.unlocked == 0u || save_data.unlocked > NUM_ADVENTURE_LEVELS) return 0;
+       12:  195:    return 1;
+       13:  196:}
+        -:  197:
+        2:  198:void save_data_blob(uint8_t **out_ptr, uint16_t *out_len) {
+        2:  199:    *out_ptr = (uint8_t *)&save_data;
+        2:  200:    *out_len = (uint16_t)sizeof(SaveData);
+        2:  201:}
+        -:  202:
+        -:  203:/* ------------------------------------------------------------------ */
+        -:  204:/* Tile queries                                                       */
+        -:  205:/* ------------------------------------------------------------------ */
+        -:  206:
+        4:  207:uint8_t stage_tile(uint8_t x, uint8_t y) {
+        4:  208:    if ((x >= SCREEN_TILES_W) || (y >= SCREEN_TILES_H)) return T_SOLID;
+        1:  209:    return stage[y][x];
+        4:  210:}
+        -:  211:
+        4:  212:uint8_t bg_for_tile(uint8_t t) {
+        4:  213:    if (t == T_TOGGLE) return switch_on ? T_TOGGLE : T_TOGGLE_OFF;
+        2:  214:    return t;
+        4:  215:}
+        -:  216:
+      591:  217:uint8_t tile_has_flag(uint8_t t, uint8_t flag) {
+      591:  218:    if (t >= TILE_COUNT) return 0;
+      590:  219:    return (uint8_t)((tile_table[t].flags & flag) != 0u);
+      591:  220:}
+        -:  221:
+        4:  222:uint8_t is_solid_tile(uint8_t t) {
+        4:  223:    if (t == T_TOGGLE) return switch_on;
+        2:  224:    return tile_has_flag(t, TILEF_SOLID);
+        4:  225:}
+        -:  226:
+      531:  227:uint8_t is_danger_tile(uint8_t t) {
+      531:  228:    return tile_has_flag(t, TILEF_DANGER);
+        -:  229:}
+        -:  230:
+        2:  231:uint8_t tile_at_fixed(int16_t fx, int16_t fy) {
+        -:  232:    int16_t px;
+        -:  233:    int16_t py;
+        -:  234:    int8_t tx;
+        -:  235:    int8_t ty;
+        2:  236:    px = fx >> FP_SHIFT;
+        2:  237:    py = fy >> FP_SHIFT;
+        2:  238:    tx = (int8_t)(px >> 3);
+        2:  239:    ty = (int8_t)(py >> 3);
+        2:  240:    if ((tx < 0) || (ty < 0) || (tx >= SCREEN_TILES_W) || (ty >= SCREEN_TILES_H)) return T_SOLID;
+        1:  241:    return stage[(uint8_t)ty][(uint8_t)tx];
+        2:  242:}
+        -:  243:
+       24:  244:uint8_t is_stomp_breakable(uint8_t tile) {
+       24:  245:    if (tile >= TILE_COUNT) return 0;
+       24:  246:    return tile_table[tile].breakable_by_stomp;
+       24:  247:}
+        -:  248:
+        -:  249:/* ------------------------------------------------------------------ */
+        -:  250:/* Stage builders                                                     */
+        -:  251:/* ------------------------------------------------------------------ */
+        -:  252:
+      274:  253:void add_platform(uint8_t x, uint8_t y, uint8_t w, uint8_t tile) {
+        -:  254:    uint8_t i;
+     1409:  255:    for (i = 0; i < w; i++) {
+     1135:  256:        if ((uint8_t)(x + i) < SCREEN_TILES_W) stage[y][x + i] = tile;
+     1135:  257:    }
+      274:  258:}
+        -:  259:
+       66:  260:void add_enemy(uint8_t tx, uint8_t ty, int8_t vx) {
+       66:  261:    if (enemy_count >= MAX_ENEMIES) return;
+       66:  262:    enemies[enemy_count].x = FIX(tx * TILE_PX);
+       66:  263:    enemies[enemy_count].y = FIX(ty * TILE_PX);
+       66:  264:    enemies[enemy_count].vx = vx;
+       66:  265:    enemies[enemy_count].alive = 1;
+       66:  266:    enemy_count++;
+       66:  267:}
+        -:  268:
+      104:  269:void set_spawn_px(uint8_t x, uint8_t y) {
+      104:  270:    player_x = FIX(x);
+      104:  271:    player_y = FIX(y);
+      104:  272:    player_vx = 0;
+      104:  273:    player_vy = FIX(-5);
+      104:  274:    stomping = 0;
+      104:  275:    stomp_ready = 1;
+      104:  276:    stomp_chain = 0;
+      104:  277:}
+        -:  278:
+      358:  279:void add_coin_line(uint8_t x, uint8_t y, uint8_t w) {
+        -:  280:    uint8_t i;
+     1168:  281:    for (i = 0; i < w; i++) {
+      810:  282:        if (((uint8_t)(x + i) < SCREEN_TILES_W) && (y < SCREEN_TILES_H) && (stage[y][x + i] == T_EMPTY)) {
+      693:  283:            stage[y][x + i] = T_COIN;
+      693:  284:        }
+      810:  285:    }
+      358:  286:}
+        -:  287:
+       87:  288:void add_hazard_line(uint8_t x, uint8_t y, uint8_t w, uint8_t tile) {
+        -:  289:    uint8_t i;
+      446:  290:    for (i = 0; i < w; i++) {
+      359:  291:        if (((uint8_t)(x + i) < SCREEN_TILES_W) && (y < SCREEN_TILES_H) && (stage[y][x + i] == T_EMPTY)) {
+      359:  292:            stage[y][x + i] = tile;
+      359:  293:        }
+      359:  294:    }
+       87:  295:}
+        -:  296:
+     1428:  297:void add_tile_if_empty(uint8_t x, uint8_t y, uint8_t tile) {
+     1428:  298:    if ((x < SCREEN_TILES_W) && (y < SCREEN_TILES_H) && (stage[y][x] == T_EMPTY)) stage[y][x] = tile;
+     1428:  299:}
+        -:  300:
+      428:  301:void add_platform_if_empty(uint8_t x, uint8_t y, uint8_t w, uint8_t tile) {
+        -:  302:    uint8_t i;
+     1496:  303:    for (i = 0; i < w; i++) add_tile_if_empty((uint8_t)(x + i), y, tile);
+      428:  304:}
+        -:  305:
+       83:  306:void add_stomp_route(uint8_t x, uint8_t y, uint8_t w) {
+       83:  307:    add_platform_if_empty(x, y, w, T_ROCK);
+       83:  308:    if (y > 3u) add_coin_line(x, (uint8_t)(y - 1u), w);
+       83:  309:}
+        -:  310:
+      144:  311:void add_route_step(uint8_t x, uint8_t y, uint8_t w, uint8_t tile) {
+      144:  312:    add_platform_if_empty(x, y, w, tile);
+      144:  313:    if (y > 3u) add_coin_line(x, (uint8_t)(y - 1u), w);
+      144:  314:}
+        -:  315:
+      264:  316:void place_marker_down(uint8_t x, uint8_t y) {
+        -:  317:    uint8_t my;
+      264:  318:    if ((x >= SCREEN_TILES_W) || (y <= (uint8_t)(CEILING_Y + 1u))) return;
+      264:  319:    my = (uint8_t)(y - 1u);
+      264:  320:    if (stage[my][x] == T_EMPTY) stage[my][x] = T_ARROW_D;
+      264:  321:}
+        -:  322:
+       88:  323:void place_exit(uint8_t x, uint8_t y) {
+       88:  324:    if ((x >= SCREEN_TILES_W) || (y >= SCREEN_TILES_H)) return;
+       88:  325:    stage[y][x] = T_EXIT;
+       88:  326:    place_marker_down(x, y);
+       88:  327:}
+        -:  328:
+       88:  329:void place_key(uint8_t x, uint8_t y) {
+       88:  330:    if ((x >= SCREEN_TILES_W) || (y >= SCREEN_TILES_H)) return;
+       88:  331:    stage[y][x] = T_KEY;
+       88:  332:    place_marker_down(x, y);
+       88:  333:}
+        -:  334:
+      528:  335:void clear_if_danger(uint8_t x, uint8_t y) {
+      528:  336:    if (is_danger_tile(stage[y][x])) stage[y][x] = T_EMPTY;
+      528:  337:}
+        -:  338:
+      264:  339:static void clear_if_platform(uint8_t x, uint8_t y) {
+      501:  340:    if (stage[y][x] == T_SOLID ||
+      248:  341:        stage[y][x] == T_CRACK ||
+      246:  342:        stage[y][x] == T_TOGGLE ||
+      242:  343:        stage[y][x] == T_CONV_L ||
+      238:  344:        stage[y][x] == T_CONV_R ||
+      238:  345:        stage[y][x] == T_MOVING ||
+      237:  346:        stage[y][x] == T_ROCK) {
+       27:  347:        stage[y][x] = T_EMPTY;
+       27:  348:    }
+      264:  349:}
+        -:  350:
+    22534:  351:static uint8_t is_pocket_wall(uint8_t tile) {
+    44245:  352:    return (uint8_t)(tile == T_SOLID ||
+    21711:  353:                     tile == T_CRACK ||
+    21534:  354:                     tile == T_SPRING ||
+    21499:  355:                     tile == T_SWITCH ||
+    21446:  356:                     tile == T_TOGGLE ||
+    21197:  357:                     tile == T_CONV_L ||
+    21074:  358:                     tile == T_CONV_R ||
+    20849:  359:                     tile == T_MOVING ||
+    22534:  360:                     tile == T_ROCK ||
+    20656:  361:                     tile == T_WALL);
+        -:  362:}
+        -:  363:
+       88:  364:void soften_exit(void) {
+       88:  365:    clear_if_danger(15, 16);
+       88:  366:    clear_if_danger(16, 16);
+       88:  367:    clear_if_danger(17, 16);
+       88:  368:    clear_if_danger(16, 15);
+       88:  369:    clear_if_danger(17, 15);
+       88:  370:    clear_if_danger(18, 15);
+       88:  371:    place_marker_down(18, 16);
+       88:  372:}
+        -:  373:
+       88:  374:void unpin_goal_tiles(void) {
+        -:  375:    uint8_t x;
+        -:  376:    uint8_t y;
+     1320:  377:    for (y = (uint8_t)(CEILING_Y + 1u); y < 17u; y++) {
+    23408:  378:        for (x = 1; x < 19u; x++) {
+    22176:  379:            if (stage[y][x] == T_KEY) {
+       88:  380:                clear_if_platform((uint8_t)(x - 1u), y);
+       88:  381:                clear_if_platform((uint8_t)(x + 1u), y);
+       88:  382:                clear_if_platform(x, (uint8_t)(y - 1u));
+       88:  383:            }
+    22176:  384:        }
+     1232:  385:    }
+       88:  386:}
+        -:  387:
+       88:  388:void fill_one_tile_pockets(void) {
+        -:  389:    uint8_t x;
+        -:  390:    uint8_t y;
+        -:  391:    uint8_t tile;
+     1320:  392:    for (y = (uint8_t)(CEILING_Y + 1u); y < 17u; y++) {
+    23408:  393:        for (x = 1; x < 19u; x++) {
+    22176:  394:            tile = stage[y][x];
+    22335:  395:            if ((tile == T_EMPTY || tile == T_COIN || tile == T_ARROW_D || tile == T_ARROW_R) &&
+    22176:  396:                is_pocket_wall(stage[(uint8_t)(y + 1u)][x]) &&
+     2969:  397:                is_pocket_wall(stage[y][(uint8_t)(x - 1u)]) &&
+      159:  398:                is_pocket_wall(stage[y][(uint8_t)(x + 1u)])) {
+        2:  399:                stage[y][x] = T_SOLID;
+        2:  400:            }
+    22176:  401:        }
+     1232:  402:    }
+       88:  403:}
+        -:  404:
+      117:  405:uint16_t rng_step(uint16_t seed) {
+      117:  406:    return (uint16_t)(seed * 1109u + 1987u);
+        -:  407:}
+        -:  408:
+       96:  409:void reset_common(void) {
+        -:  410:    uint8_t x;
+        -:  411:    uint8_t y;
+     1824:  412:    for (y = 0; y < SCREEN_TILES_H; y++) {
+    36288:  413:        for (x = 0; x < SCREEN_TILES_W; x++) stage[y][x] = T_EMPTY;
+     1728:  414:    }
+     2016:  415:    for (x = 0; x < SCREEN_TILES_W; x++) stage[CEILING_Y][x] = T_WALL;
+     2016:  416:    for (x = 0; x < SCREEN_TILES_W; x++) stage[17][x] = T_WALL;
+     1632:  417:    for (y = CEILING_Y; y < SCREEN_TILES_H; y++) {
+     1536:  418:        stage[y][0] = T_WALL;
+     1536:  419:        stage[y][19] = T_WALL;
+     1536:  420:    }
+       96:  421:    enemy_count = 0;
+       96:  422:    moving_active = 0;
+       96:  423:    moving_tick = 0;
+       96:  424:    switch_on = 1;
+       96:  425:    switch_cooldown = 0;
+       96:  426:    coins = 0;
+       96:  427:    key = 0;
+       96:  428:    bubble = 0;
+       96:  429:    invuln = 0;
+       96:  430:    stomping = 0;
+       96:  431:    stomp_ready = 1;
+       96:  432:    stomp_chain = 0;
+       96:  433:    feedback_kind = FEEDBACK_NONE;
+       96:  434:    feedback_timer = 0;
+       96:  435:    level_time = 0;
+       96:  436:    set_spawn_px(18, 80);
+       96:  437:}
+        -:  438:
+       88:  439:void begin_room(uint8_t world) {
+       88:  440:    level_world = world;
+       88:  441:    reset_common();
+       88:  442:    place_exit(18, 16);
+       88:  443:}
+        -:  444:
+       42:  445:void set_room_switch(uint8_t on) {
+       42:  446:    switch_on = on;
+       42:  447:}
+        -:  448:
+       16:  449:void add_moving_platform(uint8_t x, uint8_t y, uint8_t w, int8_t dir) {
+       16:  450:    moving_active = 1;
+       16:  451:    moving_x = x;
+       16:  452:    moving_y = y;
+       16:  453:    moving_w = w;
+       16:  454:    moving_dir = dir;
+       16:  455:    add_platform(moving_x, moving_y, moving_w, T_MOVING);
+       16:  456:}
+        -:  457:
+        8:  458:void sprinkle_coins(uint8_t seed, uint8_t count) {
+        -:  459:    uint8_t i;
+        -:  460:    uint8_t x;
+        -:  461:    uint8_t y;
+       48:  462:    for (i = 0; i < count; i++) {
+       40:  463:        x = (uint8_t)(2u + ((uint8_t)(seed + i * 5u) % 16u));
+       40:  464:        y = (uint8_t)(4u + ((uint8_t)(seed + i * 3u) % 10u));
+       40:  465:        if (stage[y][x] == T_EMPTY) stage[y][x] = T_COIN;
+       40:  466:    }
+        8:  467:}
+        -:  468:
+       80:  469:void enrich_adventure_room(uint8_t world, uint8_t local) {
+        -:  470:    uint8_t lane;
+        -:  471:    uint8_t high_x;
+        -:  472:    uint8_t lower_x;
+        -:  473:    uint8_t high_y;
+        -:  474:    uint8_t lower_y;
+        -:  475:    uint8_t high_tile;
+        -:  476:    uint8_t lower_tile;
+        -:  477:    uint8_t rock_x;
+        -:  478:    uint8_t rock_y;
+        -:  479:    uint8_t mid_x;
+        -:  480:    uint8_t mid_y;
+        -:  481:    uint8_t catch_x;
+        -:  482:    uint8_t catch_y;
+        -:  483:    uint8_t accent_tile;
+        -:  484:
+       80:  485:    if ((world == 0u) && (local < 8u)) return;
+        -:  486:
+       72:  487:    lane = (uint8_t)(local & 3u);
+       72:  488:    high_x = (uint8_t)(3u + (local & 7u));
+       72:  489:    lower_x = (uint8_t)(11u + lane);
+       72:  490:    high_y = (uint8_t)(6u + (local & 1u));
+       72:  491:    lower_y = (uint8_t)(8u + ((local >> 1u) & 1u));
+       72:  492:    rock_x = (uint8_t)(2u + ((local + world) & 3u));
+       72:  493:    rock_y = (uint8_t)(9u + ((local >> 2u) & 1u));
+       72:  494:    mid_x = (uint8_t)(6u + ((local + world) & 3u));
+       72:  495:    mid_y = (uint8_t)(11u + ((local + world) & 1u));
+       72:  496:    catch_x = (uint8_t)(14u - ((local + world) & 2u));
+       72:  497:    catch_y = (uint8_t)(12u + (local & 1u));
+       72:  498:    high_tile = T_SOLID;
+       72:  499:    lower_tile = T_SOLID;
+       72:  500:    accent_tile = T_SOLID;
+        -:  501:
+       72:  502:    if (world == 0u) {
+        8:  503:        high_tile = T_CRACK;
+        8:  504:        accent_tile = T_CRACK;
+       72:  505:    } else if (world == 3u) {
+       16:  506:        high_tile = (local & 1u) ? T_CONV_R : T_CONV_L;
+       16:  507:        lower_tile = (local & 2u) ? T_CONV_L : T_CONV_R;
+       16:  508:        accent_tile = (local & 1u) ? T_CONV_R : T_CONV_L;
+       64:  509:    } else if (world >= 4u) {
+       16:  510:        high_tile = (local & 1u) ? T_CRACK : T_CONV_R;
+       16:  511:        lower_tile = (local & 2u) ? T_TOGGLE : T_CRACK;
+       16:  512:        accent_tile = (local & 2u) ? T_CRACK : T_CONV_R;
+       48:  513:    } else if (world == 1u) {
+       16:  514:        accent_tile = T_TOGGLE;
+       32:  515:    } else if (world == 2u) {
+       16:  516:        accent_tile = T_SOLID;
+       16:  517:    }
+        -:  518:
+       72:  519:    add_tile_if_empty((uint8_t)(4u + lane), 5, T_COIN);
+       72:  520:    add_tile_if_empty((uint8_t)(8u + lane), 4, T_COIN);
+       72:  521:    add_tile_if_empty((uint8_t)(13u + lane), 5, T_COIN);
+       72:  522:    add_platform_if_empty(high_x, high_y, 3, high_tile);
+       72:  523:    add_coin_line((uint8_t)(high_x + 1u), (uint8_t)(high_y - 1u), 2);
+       72:  524:    add_platform_if_empty((uint8_t)(lower_x - 1u), lower_y, 3, lower_tile);
+       72:  525:    add_route_step(mid_x, mid_y, 2, accent_tile);
+       72:  526:    add_route_step(catch_x, catch_y, 2, (world == 1u) ? T_TOGGLE : T_SOLID);
+        -:  527:
+       72:  528:    if (world == 0u) {
+        8:  529:        add_tile_if_empty(6, 15, T_SPRING);
+       72:  530:    } else if (world == 1u) {
+       16:  531:        add_platform_if_empty((uint8_t)(5u + lane), 10, 2, T_TOGGLE);
+       64:  532:    } else if (world == 2u) {
+       16:  533:        add_tile_if_empty((uint8_t)(3u + lane), 10, T_BUBBLE);
+       16:  534:        add_tile_if_empty((uint8_t)(15u - lane), 7, (local & 1u) ? T_FAN_L : T_FAN_R);
+       48:  535:    } else if (world == 3u) {
+       16:  536:        add_tile_if_empty((uint8_t)(5u + lane), 13, T_SPRING);
+       16:  537:    } else {
+       16:  538:        add_tile_if_empty((uint8_t)(3u + lane), 10, T_BUBBLE);
+       16:  539:        add_tile_if_empty((uint8_t)(15u - lane), 7, (local & 1u) ? T_FAN_L : T_FAN_R);
+        -:  540:    }
+        -:  541:
+       72:  542:    if (local >= 4u) add_stomp_route(rock_x, rock_y, (uint8_t)(2u + (local & 1u)));
+       72:  543:    if (local >= 12u) add_enemy((uint8_t)(high_x + 1u), (uint8_t)(high_y - 1u), (local & 1u) ? 1 : -1);
+        -:  544:
+       72:  545:    if (world == 1u) {
+       16:  546:        add_platform_if_empty((uint8_t)(3u + lane), 6, 3, T_TOGGLE);
+       16:  547:        add_coin_line((uint8_t)(3u + lane), 5, 3);
+       16:  548:        if (local >= 8u) add_tile_if_empty((uint8_t)(15u - lane), 11, T_SWITCH);
+       72:  549:    } else if (world == 2u) {
+       16:  550:        add_tile_if_empty((uint8_t)(7u + lane), 6, T_BUBBLE);
+       16:  551:        add_tile_if_empty((uint8_t)(11u - lane), 13, (local & 1u) ? T_FAN_L : T_FAN_R);
+       16:  552:        if (local >= 8u) add_hazard_line((uint8_t)(4u + lane), 15, 2, T_WATER);
+       56:  553:    } else if (world == 3u) {
+       16:  554:        add_platform_if_empty((uint8_t)(2u + lane), 6, 3, (local & 1u) ? T_CONV_R : T_CONV_L);
+       16:  555:        add_coin_line((uint8_t)(2u + lane), 5, 3);
+       16:  556:        if (local >= 8u) add_stomp_route((uint8_t)(14u - lane), 11, 2);
+       40:  557:    } else if (world >= 4u) {
+       16:  558:        add_stomp_route((uint8_t)(15u - lane), 12, 2);
+       16:  559:        add_tile_if_empty((uint8_t)(6u + lane), 7, T_BUBBLE);
+       16:  560:        if (local >= 8u) add_hazard_line((uint8_t)(3u + lane), 15, 2, (local & 1u) ? T_SPIKE : T_WATER);
+       16:  561:    }
+       80:  562:}
+        -:  563:
+        8:  564:void build_tutorial_room(uint8_t local) {
+        8:  565:    if (local == 0u) {
+        1:  566:        add_platform(2, 14, 5, T_SOLID);
+        1:  567:        add_platform(8, 12, 4, T_SOLID);
+        1:  568:        add_platform(13, 10, 5, T_SOLID);
+        1:  569:        place_key(4, 13);
+        1:  570:        add_coin_line(8, 11, 4);
+        1:  571:        stage[13][7] = T_ARROW_R;
+        8:  572:    } else if (local == 1u) {
+        1:  573:        add_platform(2, 14, 5, T_SOLID);
+        1:  574:        add_platform(7, 12, 5, T_CRACK);
+        1:  575:        add_platform(13, 10, 4, T_SOLID);
+        1:  576:        place_key(9, 11);
+        1:  577:        add_coin_line(8, 10, 4);
+        1:  578:        stage[13][7] = T_ARROW_R;
+        7:  579:    } else if (local == 2u) {
+        1:  580:        add_platform(2, 13, 6, T_SOLID);
+        1:  581:        add_platform(11, 11, 5, T_SOLID);
+        1:  582:        place_key(3, 12);
+        1:  583:        add_coin_line(12, 10, 3);
+        1:  584:        stage[16][17] = T_ARROW_R;
+        6:  585:    } else if (local == 3u) {
+        1:  586:        add_platform(2, 14, 5, T_SOLID);
+        1:  587:        add_platform(12, 14, 5, T_SOLID);
+        1:  588:        add_platform(7, 10, 4, T_SOLID);
+        1:  589:        add_hazard_line(7, 16, 5, T_SPIKE);
+        1:  590:        place_key(8, 9);
+        1:  591:        add_coin_line(13, 13, 3);
+        5:  592:    } else if (local == 4u) {
+        1:  593:        add_platform(2, 14, 4, T_SOLID);
+        1:  594:        stage[14][6] = T_SPRING;
+        1:  595:        add_platform(11, 7, 5, T_SOLID);
+        1:  596:        place_key(14, 6);
+        1:  597:        add_coin_line(12, 8, 3);
+        4:  598:    } else if (local == 5u) {
+        1:  599:        add_platform(3, 13, 5, T_CRACK);
+        1:  600:        add_platform(10, 11, 5, T_CRACK);
+        1:  601:        add_platform(4, 16, 4, T_SOLID);
+        1:  602:        place_key(12, 10);
+        1:  603:        add_coin_line(4, 12, 3);
+        1:  604:        stage[12][12] = T_ARROW_D;
+        3:  605:    } else if (local == 6u) {
+        1:  606:        add_platform(2, 14, 5, T_SOLID);
+        1:  607:        add_platform(9, 12, 4, T_SOLID);
+        1:  608:        place_key(14, 15);
+        1:  609:        add_coin_line(10, 11, 3);
+        1:  610:        add_enemy(9, 16, 1);
+        1:  611:    } else {
+        1:  612:        set_room_switch(0);
+        1:  613:        add_platform(2, 14, 4, T_SOLID);
+        1:  614:        stage[14][4] = T_SWITCH;
+        1:  615:        add_platform(8, 12, 6, T_TOGGLE);
+        1:  616:        place_key(13, 11);
+        1:  617:        add_coin_line(9, 11, 3);
+        -:  618:    }
+        8:  619:}
+        -:  620:
+        8:  621:void build_intro_room(uint8_t local) {
+        -:  622:    uint8_t route;
+        8:  623:    route = (uint8_t)(local & 7u);
+        8:  624:    if (route == 0u) {
+        1:  625:        add_platform(2, 14, 5, T_SOLID);
+        1:  626:        add_platform(9, 12, 4, T_SOLID);
+        1:  627:        add_platform(14, 9, 4, T_SOLID);
+        1:  628:        add_hazard_line(7, 16, 3, T_SPIKE);
+        1:  629:        place_key(15, 8);
+        1:  630:        add_coin_line(9, 11, 3);
+        8:  631:    } else if (route == 1u) {
+        1:  632:        add_platform(2, 15, 4, T_SOLID);
+        1:  633:        stage[15][7] = T_SPRING;
+        1:  634:        add_platform(11, 8, 5, T_SOLID);
+        1:  635:        add_hazard_line(9, 16, 4, T_SPIKE);
+        1:  636:        place_key(13, 7);
+        7:  637:    } else if (route == 2u) {
+        1:  638:        add_platform(2, 13, 5, T_SOLID);
+        1:  639:        add_platform(8, 10, 5, T_CRACK);
+        1:  640:        add_platform(13, 13, 4, T_SOLID);
+        1:  641:        place_key(10, 9);
+        1:  642:        add_coin_line(13, 12, 3);
+        6:  643:    } else if (route == 3u) {
+        1:  644:        add_platform(2, 14, 5, T_SOLID);
+        1:  645:        add_platform(8, 11, 4, T_SOLID);
+        1:  646:        add_platform(13, 14, 4, T_SOLID);
+        1:  647:        place_key(9, 10);
+        1:  648:        add_enemy(12, 16, -1);
+        5:  649:    } else if (route == 4u) {
+        1:  650:        set_room_switch(0);
+        1:  651:        add_platform(2, 14, 4, T_SOLID);
+        1:  652:        stage[14][4] = T_SWITCH;
+        1:  653:        add_platform(7, 11, 4, T_TOGGLE);
+        1:  654:        add_platform(13, 9, 4, T_SOLID);
+        1:  655:        place_key(15, 8);
+        4:  656:    } else if (route == 5u) {
+        1:  657:        add_platform(2, 15, 4, T_CONV_R);
+        1:  658:        add_platform(8, 12, 4, T_SOLID);
+        1:  659:        add_platform(13, 10, 4, T_SOLID);
+        1:  660:        stage[13][6] = T_SPIKE;
+        1:  661:        place_key(14, 9);
+        1:  662:        add_coin_line(8, 11, 4);
+        3:  663:    } else if (route == 6u) {
+        1:  664:        add_platform(2, 14, 5, T_SOLID);
+        1:  665:        add_platform(9, 12, 5, T_CRACK);
+        1:  666:        stage[15][15] = T_SPRING;
+        1:  667:        place_key(11, 11);
+        1:  668:        add_hazard_line(7, 16, 3, T_SPIKE);
+        1:  669:    } else {
+        1:  670:        add_platform(2, 14, 5, T_SOLID);
+        1:  671:        add_platform(8, 10, 4, T_SOLID);
+        1:  672:        add_platform(13, 13, 4, T_SOLID);
+        1:  673:        stage[9][14] = T_BUBBLE;
+        1:  674:        add_hazard_line(9, 16, 6, T_WATER);
+        1:  675:        place_key(9, 9);
+        1:  676:        add_enemy(14, 16, -1);
+        -:  677:    }
+        8:  678:}
+        -:  679:
+       16:  680:void build_switch_room(uint8_t local) {
+        -:  681:    uint8_t route;
+       16:  682:    route = (uint8_t)(local & 3u);
+       16:  683:    set_room_switch((uint8_t)((local & 1u) == 0u));
+       16:  684:    add_platform(2, 14, 4, T_SOLID);
+       16:  685:    stage[(local & 4u) ? 13 : 14][4] = T_SWITCH;
+       16:  686:    if (route == 0u) {
+        4:  687:        add_platform(7, 12, 6, T_TOGGLE);
+        4:  688:        add_platform(14, 9, 4, T_SOLID);
+        4:  689:        place_key(15, 8);
+        4:  690:        add_coin_line(8, 11, 4);
+       16:  691:    } else if (route == 1u) {
+        4:  692:        add_platform(7, 10, 4, T_SOLID);
+        4:  693:        add_platform(12, 13, 5, T_TOGGLE);
+        4:  694:        add_hazard_line(8, 16, 5, T_SPIKE);
+        4:  695:        place_key(8, 9);
+       12:  696:    } else if (route == 2u) {
+        4:  697:        add_platform(6, 13, 4, T_TOGGLE);
+        4:  698:        add_platform(12, 10, 4, T_TOGGLE);
+        4:  699:        stage[15][15] = T_SPRING;
+        4:  700:        place_key(13, 9);
+        4:  701:        add_coin_line(6, 12, 3);
+        4:  702:    } else {
+        4:  703:        add_platform(6, 11, 5, T_SOLID);
+        4:  704:        add_platform(12, 8, 4, T_TOGGLE);
+        4:  705:        add_hazard_line(7, 16, 4, T_SPIKE);
+        4:  706:        place_key(13, 7);
+        4:  707:        add_enemy(11, 16, 1);
+        -:  708:    }
+       16:  709:    if (local >= 8u) add_enemy((uint8_t)(8u + (local & 3u)), 16, (local & 1u) ? -1 : 1);
+       16:  710:}
+        -:  711:
+       16:  712:void build_water_room(uint8_t local) {
+        -:  713:    uint8_t route;
+       16:  714:    route = (uint8_t)(local & 3u);
+       16:  715:    add_platform(2, 14, 4, T_SOLID);
+       16:  716:    if (route == 0u) {
+        4:  717:        add_hazard_line(6, 16, 8, T_WATER);
+        4:  718:        add_platform(8, 12, 4, T_SOLID);
+        4:  719:        stage[12][3] = T_BUBBLE;
+        4:  720:        place_key(9, 11);
+        4:  721:        add_coin_line(11, 11, 3);
+       16:  722:    } else if (route == 1u) {
+        4:  723:        add_hazard_line(5, 16, 5, T_WATER);
+        4:  724:        add_hazard_line(13, 16, 3, T_WATER);
+        4:  725:        stage[10][5] = T_FAN_R;
+        4:  726:        add_platform(10, 11, 4, T_SOLID);
+        4:  727:        place_key(12, 10);
+       12:  728:    } else if (route == 2u) {
+        4:  729:        add_hazard_line(6, 16, 9, T_WATER);
+        4:  730:        stage[13][4] = T_BUBBLE;
+        4:  731:        stage[9][15] = T_FAN_L;
+        4:  732:        add_platform(8, 9, 4, T_SOLID);
+        4:  733:        place_key(9, 8);
+        4:  734:        add_enemy(13, 16, -1);
+        4:  735:    } else {
+        4:  736:        add_hazard_line(4, 16, 4, T_WATER);
+        4:  737:        add_hazard_line(11, 16, 5, T_WATER);
+        4:  738:        stage[15][6] = T_SPRING;
+        4:  739:        stage[8][14] = (local & 4u) ? T_FAN_L : T_FAN_R;
+        4:  740:        add_platform(10, 8, 5, T_SOLID);
+        4:  741:        stage[12][3] = T_BUBBLE;
+        4:  742:        place_key(12, 7);
+        -:  743:    }
+       16:  744:    if (local >= 8u) add_hazard_line((uint8_t)(7u + (local & 3u)), 15, 2, T_SPIKE);
+       16:  745:}
+        -:  746:
+       16:  747:void build_motion_room(uint8_t local) {
+        -:  748:    uint8_t route;
+       16:  749:    route = (uint8_t)(local & 3u);
+       16:  750:    add_platform(2, 14, 4, (local & 1u) ? T_CONV_R : T_CONV_L);
+       16:  751:    if (route == 0u) {
+        4:  752:        add_platform(8, 12, 5, T_CONV_R);
+        4:  753:        add_platform(14, 9, 4, T_SOLID);
+        4:  754:        place_key(15, 8);
+       16:  755:    } else if (route == 1u) {
+        4:  756:        add_platform(7, 10, 4, T_CONV_L);
+        4:  757:        add_platform(12, 13, 5, T_CONV_R);
+        4:  758:        add_hazard_line(6, 16, 4, T_SPIKE);
+        4:  759:        place_key(8, 9);
+       12:  760:    } else if (route == 2u) {
+        4:  761:        add_platform(5, 12, 4, T_SOLID);
+        4:  762:        add_platform(13, 8, 4, T_CONV_L);
+        4:  763:        stage[14][10] = T_FAN_R;
+        4:  764:        place_key(14, 7);
+        4:  765:        add_coin_line(5, 11, 3);
+        4:  766:    } else {
+        4:  767:        add_platform(4, 11, 3, T_CRACK);
+        4:  768:        add_platform(12, 10, 4, T_CONV_R);
+        4:  769:        stage[13][15] = T_SPRING;
+        4:  770:        add_hazard_line(8, 16, 4, T_SPIKE);
+        4:  771:        place_key(13, 9);
+        -:  772:    }
+       16:  773:    if (local >= 4u) {
+       24:  774:        add_moving_platform((uint8_t)(6u + (local & 3u)),
+       12:  775:                            (uint8_t)((local & 4u) ? 7u : 8u),
+        -:  776:                            3,
+       12:  777:                            (local & 1u) ? 1 : -1);
+       12:  778:    }
+       16:  779:    if (local >= 10u) add_enemy((uint8_t)(10u + (local & 3u)), 16, (local & 1u) ? -1 : 1);
+       16:  780:}
+        -:  781:
+       16:  782:void build_mixed_room(uint8_t local) {
+        -:  783:    uint8_t route;
+       16:  784:    route = (uint8_t)(local & 7u);
+       16:  785:    set_room_switch((uint8_t)((local & 1u) == 0u));
+       16:  786:    add_platform(2, 14, 4, T_SOLID);
+       16:  787:    if (route == 0u) {
+        2:  788:        stage[14][4] = T_SWITCH;
+        2:  789:        add_platform(7, 12, 4, T_TOGGLE);
+        2:  790:        add_platform(12, 9, 4, T_CRACK);
+        2:  791:        add_hazard_line(8, 16, 5, T_SPIKE);
+        2:  792:        place_key(13, 8);
+       16:  793:    } else if (route == 1u) {
+        2:  794:        add_hazard_line(5, 16, 8, T_WATER);
+        2:  795:        stage[12][3] = T_BUBBLE;
+        2:  796:        stage[10][14] = T_FAN_L;
+        2:  797:        add_platform(9, 10, 4, T_CONV_R);
+        2:  798:        place_key(10, 9);
+        2:  799:        add_enemy(14, 16, -1);
+       14:  800:    } else if (route == 2u) {
+        2:  801:        stage[14][6] = T_SPRING;
+        2:  802:        add_platform(9, 9, 5, T_TOGGLE);
+        2:  803:        stage[13][4] = T_SWITCH;
+        2:  804:        add_hazard_line(7, 16, 4, T_SPIKE);
+        2:  805:        place_key(11, 8);
+       12:  806:    } else if (route == 3u) {
+        2:  807:        add_platform(5, 12, 4, T_CRACK);
+        2:  808:        add_platform(12, 10, 5, T_CONV_L);
+        2:  809:        add_hazard_line(7, 16, 3, T_WATER);
+        2:  810:        place_key(14, 9);
+        2:  811:        add_enemy(9, 16, 1);
+       10:  812:    } else if (route == 4u) {
+        2:  813:        add_hazard_line(6, 16, 6, T_SPIKE);
+        2:  814:        stage[13][3] = T_BUBBLE;
+        2:  815:        add_moving_platform(8, 10, 3, 1);
+        2:  816:        place_key(9, 9);
+        8:  817:    } else if (route == 5u) {
+        2:  818:        add_platform(7, 13, 4, T_CONV_R);
+        2:  819:        stage[11][15] = T_FAN_L;
+        2:  820:        add_platform(12, 8, 4, T_CRACK);
+        2:  821:        add_hazard_line(5, 16, 4, T_WATER);
+        2:  822:        place_key(14, 7);
+        2:  823:        add_enemy(13, 16, -1);
+        6:  824:    } else if (route == 6u) {
+        2:  825:        stage[14][4] = T_SWITCH;
+        2:  826:        add_platform(7, 12, 3, T_TOGGLE);
+        2:  827:        add_platform(11, 9, 4, T_TOGGLE);
+        2:  828:        stage[15][14] = T_SPRING;
+        2:  829:        add_hazard_line(7, 16, 5, T_WATER);
+        2:  830:        place_key(12, 8);
+        2:  831:    } else {
+        2:  832:        add_platform(6, 12, 4, T_CRACK);
+        2:  833:        add_platform(12, 11, 5, T_CONV_R);
+        2:  834:        add_hazard_line(5, 16, 4, T_SPIKE);
+        2:  835:        add_hazard_line(12, 16, 4, T_WATER);
+        2:  836:        stage[10][4] = T_BUBBLE;
+        2:  837:        place_key(13, 10);
+        2:  838:        add_enemy(8, 16, 1);
+        2:  839:        add_enemy(14, 16, -1);
+        -:  840:    }
+       16:  841:}
+        -:  842:
+       80:  843:void generate_adventure(uint8_t level) {
+        -:  844:    uint8_t local;
+        -:  845:    uint8_t world;
+       80:  846:    world = (uint8_t)(level >> 4);
+       80:  847:    local = (uint8_t)(level & 15u);
+       80:  848:    begin_room(world);
+       80:  849:    if ((world == 0u) && (local < 8u)) {
+        8:  850:        build_tutorial_room(local);
+       80:  851:    } else if (world == 0u) {
+        8:  852:        build_intro_room(local);
+       72:  853:    } else if (world == 1u) {
+       16:  854:        build_switch_room(local);
+       64:  855:    } else if (world == 2u) {
+       16:  856:        build_water_room(local);
+       48:  857:    } else if (world == 3u) {
+       16:  858:        build_motion_room(local);
+       16:  859:    } else {
+       16:  860:        build_mixed_room(local);
+        -:  861:    }
+       80:  862:    enrich_adventure_room(world, local);
+       80:  863:    unpin_goal_tiles();
+       80:  864:    fill_one_tile_pockets();
+       80:  865:    soften_exit();
+       80:  866:}
+        -:  867:
+        8:  868:void generate_panic(uint16_t depth) {
+        -:  869:    uint16_t seed;
+        -:  870:    uint8_t i;
+        -:  871:    uint8_t danger;
+        -:  872:    uint8_t x;
+        -:  873:    uint8_t y;
+        -:  874:    uint8_t key_x;
+        -:  875:    uint8_t key_y;
+        -:  876:    uint8_t support_x;
+        8:  877:    seed = (uint16_t)(depth * 97u + 31u);
+        8:  878:    danger = (uint8_t)(depth / 10u);
+        8:  879:    if (danger > 5u) danger = 5u;
+        8:  880:    begin_room(4);
+        8:  881:    set_spawn_px(18, 92);
+        8:  882:    set_room_switch((uint8_t)((depth & 1u) == 0u));
+        8:  883:    add_platform(2, 14, 4, T_SOLID);
+        8:  884:    add_platform(13, 14, 3, (depth & 1u) ? T_CONV_L : T_CONV_R);
+        -:  885:
+       40:  886:    for (i = 0; i < 4u; i++) {
+       32:  887:        seed = rng_step(seed);
+       32:  888:        x = (uint8_t)(5u + (seed % 10u));
+       32:  889:        seed = rng_step(seed);
+       32:  890:        y = (uint8_t)(6u + (seed % 8u));
+       32:  891:        add_platform(x, y, (uint8_t)(3u + (seed % 4u)), (i == 2u) ? T_TOGGLE : ((depth & 3u) == i) ? T_CRACK : T_SOLID);
+       32:  892:    }
+        -:  893:
+        8:  894:    key_x = (uint8_t)(5u + (depth % 10u));
+        8:  895:    key_y = (uint8_t)(4u + (depth & 1u));
+        8:  896:    support_x = (uint8_t)(key_x - 1u);
+        8:  897:    place_key(key_x, key_y);
+        8:  898:    add_platform_if_empty(support_x, (uint8_t)(key_y + 1u), 3, (depth & 2u) ? T_CRACK : T_SOLID);
+        8:  899:    stage[13][4] = T_SWITCH;
+        8:  900:    stage[8][15] = (depth & 1u) ? T_FAN_L : T_FAN_R;
+        8:  901:    stage[12][6] = T_BUBBLE;
+        8:  902:    if (danger >= 1u) add_stomp_route((uint8_t)(9u + (depth & 3u)), 10, 2);
+        8:  903:    if (danger >= 3u) add_platform_if_empty((uint8_t)(4u + (depth & 3u)), 7, 2, T_CONV_R);
+        8:  904:    sprinkle_coins((uint8_t)seed, (uint8_t)(4u + danger));
+        -:  905:
+       40:  906:    for (i = 0; i < (uint8_t)(3u + danger); i++) {
+       32:  907:        seed = rng_step(seed);
+       32:  908:        x = (uint8_t)(6u + (seed % 10u));
+       32:  909:        y = (uint8_t)(16u - (i & 1u));
+       32:  910:        if (x > 14u) x = 14u;
+       32:  911:        if (stage[y][x] == T_EMPTY) stage[y][x] = ((i + depth) & 1u) ? T_SPIKE : T_WATER;
+       32:  912:    }
+       19:  913:    for (i = 0; i < (uint8_t)(1u + (danger / 2u)); i++) {
+       11:  914:        add_enemy((uint8_t)(7u + ((seed + i * 5u) % 8u)), 16, (i & 1u) ? 1 : -1);
+       11:  915:    }
+        8:  916:    if (danger >= 2u) {
+        2:  917:        add_moving_platform((uint8_t)(7u + (depth & 3u)), 7, 3, 1);
+        2:  918:    }
+        8:  919:    unpin_goal_tiles();
+        8:  920:    fill_one_tile_pockets();
+        8:  921:    soften_exit();
+        8:  922:}

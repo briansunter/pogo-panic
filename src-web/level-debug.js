@@ -1,4 +1,6 @@
-export const LEVEL_COUNT = 80;
+import roomsJson from "./levels.json" with { type: "json" };
+
+export const LEVEL_COUNT = roomsJson.length;
 export const SCREEN_TILES_W = 20;
 export const SCREEN_TILES_H = 18;
 export const TILE_PX = 8;
@@ -10,7 +12,7 @@ export const TILE = Object.freeze({
   SPRING: 3,
   SPIKE: 4,
   COIN: 5,
-  BATTERY: 6,
+  KEY: 6,
   EXIT: 7,
   SWITCH: 8,
   TOGGLE: 9,
@@ -28,7 +30,6 @@ export const TILE = Object.freeze({
   WALL: 21
 });
 
-const CEILING_Y = 2;
 const WORLD_NAMES = ["Groove", "Switch", "Drift", "Motion", "Gauntlet"];
 const PALETTE = {
   white: "#f8f8f8",
@@ -45,7 +46,7 @@ const TILE_NAMES = new Map([
   [TILE.SPRING, "spring"],
   [TILE.SPIKE, "spike"],
   [TILE.COIN, "coin"],
-  [TILE.BATTERY, "battery"],
+  [TILE.KEY, "key"],
   [TILE.EXIT, "exit"],
   [TILE.SWITCH, "switch"],
   [TILE.TOGGLE, "toggle"],
@@ -63,494 +64,15 @@ const TILE_NAMES = new Map([
   [TILE.WALL, "wall"]
 ]);
 
-function emptyStage() {
-  return Array.from({ length: SCREEN_TILES_H }, () => Array(SCREEN_TILES_W).fill(TILE.EMPTY));
-}
-
-function resetCommon(room) {
-  room.stage = emptyStage();
-  for (let x = 0; x < SCREEN_TILES_W; x += 1) {
-    room.stage[CEILING_Y][x] = TILE.WALL;
-    room.stage[17][x] = TILE.WALL;
-  }
-  for (let y = CEILING_Y; y < SCREEN_TILES_H; y += 1) {
-    room.stage[y][0] = TILE.WALL;
-    room.stage[y][19] = TILE.WALL;
-  }
-  room.enemies = [];
-  room.moving = null;
-  room.switchOn = true;
-  room.spawn = { x: 18, y: 80 };
-}
-
-function beginRoom(world) {
-  const room = { stage: emptyStage(), world, local: 0, enemies: [], moving: null, switchOn: true };
-  resetCommon(room);
-  placeExit(room, 18, 16);
-  return room;
-}
-
-function setRoomSwitch(room, on) {
-  room.switchOn = Boolean(on);
-}
-
-function addPlatform(room, x, y, w, tile) {
-  for (let i = 0; i < w; i += 1) {
-    const tx = x + i;
-    if (tx < SCREEN_TILES_W && y < SCREEN_TILES_H) room.stage[y][tx] = tile;
-  }
-}
-
-function addColumn(room, x, y, h, tile) {
-  for (let i = 0; i < h; i += 1) {
-    const ty = y + i;
-    if (ty < SCREEN_TILES_H && x < SCREEN_TILES_W) room.stage[ty][x] = tile;
-  }
-}
-
-function addCoinLine(room, x, y, w) {
-  for (let i = 0; i < w; i += 1) {
-    const tx = x + i;
-    if (tx < SCREEN_TILES_W && y < SCREEN_TILES_H && room.stage[y][tx] === TILE.EMPTY) {
-      room.stage[y][tx] = TILE.COIN;
-    }
-  }
-}
-
-function addHazardLine(room, x, y, w, tile) {
-  for (let i = 0; i < w; i += 1) {
-    const tx = x + i;
-    if (tx < SCREEN_TILES_W && y < SCREEN_TILES_H && room.stage[y][tx] === TILE.EMPTY) {
-      room.stage[y][tx] = tile;
-    }
-  }
-}
-
-function addTileIfEmpty(room, x, y, tile) {
-  if (x < SCREEN_TILES_W && y < SCREEN_TILES_H && room.stage[y][x] === TILE.EMPTY) {
-    room.stage[y][x] = tile;
-  }
-}
-
-function addPlatformIfEmpty(room, x, y, w, tile) {
-  for (let i = 0; i < w; i += 1) addTileIfEmpty(room, x + i, y, tile);
-}
-
-function addStompRoute(room, x, y, w) {
-  addPlatformIfEmpty(room, x, y, w, TILE.ROCK);
-  if (y > 3) addCoinLine(room, x, y - 1, w);
-}
-
-function addEnemy(room, tx, ty, vx) {
-  room.enemies.push({ tx, ty, vx });
-}
-
-function addMovingPlatform(room, x, y, w, dir) {
-  room.moving = { x, y, w, dir };
-  addPlatform(room, x, y, w, TILE.MOVING);
-}
-
-function setSpawnPx(room, x, y) {
-  room.spawn = { x, y };
-}
-
-function placeMarkerDown(room, x, y) {
-  if (x >= SCREEN_TILES_W || y <= CEILING_Y + 1) return;
-  const markerY = y - 1;
-  if (room.stage[markerY][x] === TILE.EMPTY) room.stage[markerY][x] = TILE.ARROW_D;
-}
-
-function placeExit(room, x, y) {
-  if (x >= SCREEN_TILES_W || y >= SCREEN_TILES_H) return;
-  room.stage[y][x] = TILE.EXIT;
-  placeMarkerDown(room, x, y);
-}
-
-function placeBattery(room, x, y) {
-  if (x >= SCREEN_TILES_W || y >= SCREEN_TILES_H) return;
-  room.stage[y][x] = TILE.BATTERY;
-  placeMarkerDown(room, x, y);
-}
-
-function tileIsDanger(tile) {
-  return tile === TILE.SPIKE || tile === TILE.WATER;
-}
-
-function clearIfDanger(room, x, y) {
-  if (tileIsDanger(room.stage[y][x])) room.stage[y][x] = TILE.EMPTY;
-}
-
-function softenExit(room) {
-  clearIfDanger(room, 15, 16);
-  clearIfDanger(room, 16, 16);
-  clearIfDanger(room, 17, 16);
-  clearIfDanger(room, 16, 15);
-  clearIfDanger(room, 17, 15);
-  clearIfDanger(room, 18, 15);
-  placeMarkerDown(room, 18, 16);
-}
-
-function enrichAdventureRoom(room, world, local) {
-  if (world === 0 && local < 8) return;
-
-  const lane = local & 3;
-  const highX = 3 + (local & 7);
-  const lowerX = 11 + lane;
-  const highY = 6 + (local & 1);
-  const lowerY = 8 + ((local >> 1) & 1);
-  const rockX = 2 + ((local + world) & 3);
-  const rockY = 9 + ((local >> 2) & 1);
-  let highTile = TILE.SOLID;
-  let lowerTile = TILE.SOLID;
-
-  if (world === 0) {
-    highTile = TILE.CRACK;
-  } else if (world === 3) {
-    highTile = local & 1 ? TILE.CONV_R : TILE.CONV_L;
-    lowerTile = local & 2 ? TILE.CONV_L : TILE.CONV_R;
-  } else if (world >= 4) {
-    highTile = local & 1 ? TILE.CRACK : TILE.CONV_R;
-    lowerTile = local & 2 ? TILE.TOGGLE : TILE.CRACK;
-  }
-
-  addTileIfEmpty(room, 4 + lane, 5, TILE.COIN);
-  addTileIfEmpty(room, 8 + lane, 4, TILE.COIN);
-  addTileIfEmpty(room, 13 + lane, 5, TILE.COIN);
-  addPlatformIfEmpty(room, highX, highY, 3, highTile);
-  addCoinLine(room, highX + 1, highY - 1, 2);
-  addPlatformIfEmpty(room, lowerX - 1, lowerY, 3, lowerTile);
-
-  if (world === 0) {
-    addTileIfEmpty(room, 6, 15, TILE.SPRING);
-  } else if (world === 1) {
-    addPlatformIfEmpty(room, 5 + lane, 10, 2, TILE.TOGGLE);
-  } else if (world === 2) {
-    addTileIfEmpty(room, 3 + lane, 10, TILE.BUBBLE);
-    addTileIfEmpty(room, 15 - lane, 7, local & 1 ? TILE.FAN_L : TILE.FAN_R);
-  } else if (world === 3) {
-    addTileIfEmpty(room, 5 + lane, 13, TILE.SPRING);
-  } else {
-    addTileIfEmpty(room, 3 + lane, 10, TILE.BUBBLE);
-    addTileIfEmpty(room, 15 - lane, 7, local & 1 ? TILE.FAN_L : TILE.FAN_R);
-  }
-
-  if (local >= 4) addStompRoute(room, rockX, rockY, 2 + (local & 1));
-  if (local >= 12) addEnemy(room, highX + 1, highY - 1, local & 1 ? 1 : -1);
-
-  if (world === 1) {
-    addPlatformIfEmpty(room, 3 + lane, 6, 3, TILE.TOGGLE);
-    addCoinLine(room, 3 + lane, 5, 3);
-    if (local >= 8) addTileIfEmpty(room, 15 - lane, 11, TILE.SWITCH);
-  } else if (world === 2) {
-    addTileIfEmpty(room, 7 + lane, 6, TILE.BUBBLE);
-    addTileIfEmpty(room, 11 - lane, 13, local & 1 ? TILE.FAN_L : TILE.FAN_R);
-    if (local >= 8) addHazardLine(room, 4 + lane, 15, 2, TILE.WATER);
-  } else if (world === 3) {
-    addPlatformIfEmpty(room, 2 + lane, 6, 3, local & 1 ? TILE.CONV_R : TILE.CONV_L);
-    addCoinLine(room, 2 + lane, 5, 3);
-    if (local >= 8) addStompRoute(room, 14 - lane, 11, 2);
-  } else if (world >= 4) {
-    addStompRoute(room, 15 - lane, 12, 2);
-    addTileIfEmpty(room, 6 + lane, 7, TILE.BUBBLE);
-    if (local >= 8) addHazardLine(room, 3 + lane, 15, 2, local & 1 ? TILE.SPIKE : TILE.WATER);
-  }
-}
-
-function buildTutorialRoom(room, local) {
-  if (local === 0) {
-    addPlatform(room, 2, 14, 5, TILE.SOLID);
-    addPlatform(room, 8, 12, 4, TILE.SOLID);
-    addPlatform(room, 13, 10, 5, TILE.SOLID);
-    placeBattery(room, 4, 13);
-    addCoinLine(room, 8, 11, 4);
-    room.stage[13][7] = TILE.ARROW_R;
-  } else if (local === 1) {
-    addPlatform(room, 2, 14, 4, TILE.SOLID);
-    addColumn(room, 5, 12, 5, TILE.SOLID);
-    addColumn(room, 13, 12, 5, TILE.SOLID);
-    addPlatform(room, 6, 12, 7, TILE.CRACK);
-    placeBattery(room, 9, 15);
-    addCoinLine(room, 7, 10, 5);
-    room.stage[11][9] = TILE.ARROW_D;
-  } else if (local === 2) {
-    addPlatform(room, 2, 13, 6, TILE.SOLID);
-    addPlatform(room, 11, 11, 5, TILE.SOLID);
-    placeBattery(room, 3, 12);
-    addCoinLine(room, 12, 10, 3);
-    room.stage[16][17] = TILE.ARROW_R;
-  } else if (local === 3) {
-    addPlatform(room, 2, 14, 5, TILE.SOLID);
-    addPlatform(room, 12, 14, 5, TILE.SOLID);
-    addPlatform(room, 7, 10, 4, TILE.SOLID);
-    addHazardLine(room, 7, 16, 5, TILE.SPIKE);
-    placeBattery(room, 8, 9);
-    addCoinLine(room, 13, 13, 3);
-  } else if (local === 4) {
-    addPlatform(room, 2, 14, 4, TILE.SOLID);
-    room.stage[14][6] = TILE.SPRING;
-    addPlatform(room, 11, 7, 5, TILE.SOLID);
-    placeBattery(room, 14, 6);
-    addCoinLine(room, 12, 8, 3);
-  } else if (local === 5) {
-    addPlatform(room, 3, 13, 5, TILE.CRACK);
-    addPlatform(room, 10, 11, 5, TILE.CRACK);
-    addPlatform(room, 4, 16, 4, TILE.SOLID);
-    placeBattery(room, 12, 10);
-    addCoinLine(room, 4, 12, 3);
-    room.stage[12][12] = TILE.ARROW_D;
-  } else if (local === 6) {
-    addPlatform(room, 2, 14, 5, TILE.SOLID);
-    addPlatform(room, 9, 12, 4, TILE.SOLID);
-    placeBattery(room, 14, 15);
-    addCoinLine(room, 10, 11, 3);
-    addEnemy(room, 9, 16, 1);
-  } else {
-    setRoomSwitch(room, false);
-    addPlatform(room, 2, 14, 4, TILE.SOLID);
-    room.stage[15][4] = TILE.SWITCH;
-    addPlatform(room, 8, 12, 6, TILE.TOGGLE);
-    placeBattery(room, 13, 11);
-    addCoinLine(room, 9, 11, 3);
-  }
-}
-
-function buildIntroRoom(room, local) {
-  const route = local & 7;
-  if (route === 0) {
-    addPlatform(room, 2, 14, 5, TILE.SOLID);
-    addPlatform(room, 9, 12, 4, TILE.SOLID);
-    addPlatform(room, 14, 9, 4, TILE.SOLID);
-    addHazardLine(room, 7, 16, 3, TILE.SPIKE);
-    placeBattery(room, 15, 8);
-    addCoinLine(room, 9, 11, 3);
-  } else if (route === 1) {
-    addPlatform(room, 2, 15, 4, TILE.SOLID);
-    room.stage[15][7] = TILE.SPRING;
-    addPlatform(room, 11, 8, 5, TILE.SOLID);
-    addHazardLine(room, 9, 16, 4, TILE.SPIKE);
-    placeBattery(room, 13, 7);
-  } else if (route === 2) {
-    addPlatform(room, 2, 13, 5, TILE.SOLID);
-    addPlatform(room, 8, 10, 5, TILE.CRACK);
-    addPlatform(room, 13, 13, 4, TILE.SOLID);
-    placeBattery(room, 10, 9);
-    addCoinLine(room, 13, 12, 3);
-  } else if (route === 3) {
-    addPlatform(room, 2, 14, 5, TILE.SOLID);
-    addPlatform(room, 8, 11, 4, TILE.SOLID);
-    addPlatform(room, 13, 14, 4, TILE.SOLID);
-    placeBattery(room, 9, 10);
-    addEnemy(room, 12, 16, -1);
-  } else if (route === 4) {
-    setRoomSwitch(room, false);
-    room.stage[15][4] = TILE.SWITCH;
-    addPlatform(room, 2, 14, 4, TILE.SOLID);
-    addPlatform(room, 7, 11, 4, TILE.TOGGLE);
-    addPlatform(room, 13, 9, 4, TILE.SOLID);
-    placeBattery(room, 15, 8);
-  } else if (route === 5) {
-    addPlatform(room, 2, 15, 4, TILE.CONV_R);
-    addPlatform(room, 8, 12, 4, TILE.SOLID);
-    addPlatform(room, 13, 10, 4, TILE.SOLID);
-    room.stage[13][6] = TILE.SPIKE;
-    placeBattery(room, 14, 9);
-    addCoinLine(room, 8, 11, 4);
-  } else if (route === 6) {
-    addPlatform(room, 2, 14, 5, TILE.SOLID);
-    addPlatform(room, 9, 12, 5, TILE.CRACK);
-    room.stage[15][15] = TILE.SPRING;
-    placeBattery(room, 11, 11);
-    addHazardLine(room, 7, 16, 3, TILE.SPIKE);
-  } else {
-    addPlatform(room, 2, 14, 5, TILE.SOLID);
-    addPlatform(room, 8, 10, 4, TILE.SOLID);
-    addPlatform(room, 13, 13, 4, TILE.SOLID);
-    room.stage[9][14] = TILE.BUBBLE;
-    addHazardLine(room, 9, 16, 6, TILE.WATER);
-    placeBattery(room, 9, 9);
-    addEnemy(room, 14, 16, -1);
-  }
-}
-
-function buildSwitchRoom(room, local) {
-  const route = local & 3;
-  setRoomSwitch(room, (local & 1) === 0);
-  addPlatform(room, 2, 14, 4, TILE.SOLID);
-  room.stage[(local & 4) ? 13 : 15][4] = TILE.SWITCH;
-  if (route === 0) {
-    addPlatform(room, 7, 12, 6, TILE.TOGGLE);
-    addPlatform(room, 14, 9, 4, TILE.SOLID);
-    placeBattery(room, 15, 8);
-    addCoinLine(room, 8, 11, 4);
-  } else if (route === 1) {
-    addPlatform(room, 7, 10, 4, TILE.SOLID);
-    addPlatform(room, 12, 13, 5, TILE.TOGGLE);
-    addHazardLine(room, 8, 16, 5, TILE.SPIKE);
-    placeBattery(room, 8, 9);
-  } else if (route === 2) {
-    addPlatform(room, 6, 13, 4, TILE.TOGGLE);
-    addPlatform(room, 12, 10, 4, TILE.TOGGLE);
-    room.stage[15][15] = TILE.SPRING;
-    placeBattery(room, 13, 9);
-    addCoinLine(room, 6, 12, 3);
-  } else {
-    addPlatform(room, 6, 11, 5, TILE.SOLID);
-    addPlatform(room, 12, 8, 4, TILE.TOGGLE);
-    addHazardLine(room, 7, 16, 4, TILE.SPIKE);
-    placeBattery(room, 13, 7);
-    addEnemy(room, 11, 16, 1);
-  }
-  if (local >= 8) addEnemy(room, 8 + (local & 3), 16, (local & 1) ? -1 : 1);
-}
-
-function buildWaterRoom(room, local) {
-  const route = local & 3;
-  addPlatform(room, 2, 14, 4, TILE.SOLID);
-  if (route === 0) {
-    addHazardLine(room, 6, 16, 8, TILE.WATER);
-    addPlatform(room, 8, 12, 4, TILE.SOLID);
-    room.stage[12][3] = TILE.BUBBLE;
-    placeBattery(room, 9, 11);
-    addCoinLine(room, 11, 11, 3);
-  } else if (route === 1) {
-    addHazardLine(room, 5, 16, 5, TILE.WATER);
-    addHazardLine(room, 13, 16, 3, TILE.WATER);
-    room.stage[10][5] = TILE.FAN_R;
-    addPlatform(room, 10, 11, 4, TILE.SOLID);
-    placeBattery(room, 12, 10);
-  } else if (route === 2) {
-    addHazardLine(room, 6, 16, 9, TILE.WATER);
-    room.stage[13][4] = TILE.BUBBLE;
-    room.stage[9][15] = TILE.FAN_L;
-    addPlatform(room, 8, 9, 4, TILE.SOLID);
-    placeBattery(room, 9, 8);
-    addEnemy(room, 13, 16, -1);
-  } else {
-    addHazardLine(room, 4, 16, 4, TILE.WATER);
-    addHazardLine(room, 11, 16, 5, TILE.WATER);
-    room.stage[15][6] = TILE.SPRING;
-    room.stage[8][14] = (local & 4) ? TILE.FAN_L : TILE.FAN_R;
-    addPlatform(room, 10, 8, 5, TILE.SOLID);
-    room.stage[12][3] = TILE.BUBBLE;
-    placeBattery(room, 12, 7);
-  }
-  if (local >= 8) addHazardLine(room, 7 + (local & 3), 15, 2, TILE.SPIKE);
-}
-
-function buildMotionRoom(room, local) {
-  const route = local & 3;
-  addPlatform(room, 2, 14, 4, (local & 1) ? TILE.CONV_R : TILE.CONV_L);
-  if (route === 0) {
-    addPlatform(room, 8, 12, 5, TILE.CONV_R);
-    addPlatform(room, 14, 9, 4, TILE.SOLID);
-    placeBattery(room, 15, 8);
-  } else if (route === 1) {
-    addPlatform(room, 7, 10, 4, TILE.CONV_L);
-    addPlatform(room, 12, 13, 5, TILE.CONV_R);
-    addHazardLine(room, 6, 16, 4, TILE.SPIKE);
-    placeBattery(room, 8, 9);
-  } else if (route === 2) {
-    addPlatform(room, 5, 12, 4, TILE.SOLID);
-    addPlatform(room, 13, 8, 4, TILE.CONV_L);
-    room.stage[14][10] = TILE.FAN_R;
-    placeBattery(room, 14, 7);
-    addCoinLine(room, 5, 11, 3);
-  } else {
-    addPlatform(room, 4, 11, 3, TILE.CRACK);
-    addPlatform(room, 12, 10, 4, TILE.CONV_R);
-    room.stage[13][15] = TILE.SPRING;
-    addHazardLine(room, 8, 16, 4, TILE.SPIKE);
-    placeBattery(room, 13, 9);
-  }
-  if (local >= 4) {
-    addMovingPlatform(room, 6 + (local & 3), (local & 4) ? 7 : 8, 3, (local & 1) ? 1 : -1);
-  }
-  if (local >= 10) addEnemy(room, 10 + (local & 3), 16, (local & 1) ? -1 : 1);
-}
-
-function buildMixedRoom(room, local) {
-  const route = local & 7;
-  setRoomSwitch(room, (local & 1) === 0);
-  addPlatform(room, 2, 14, 4, TILE.SOLID);
-  if (route === 0) {
-    room.stage[15][4] = TILE.SWITCH;
-    addPlatform(room, 7, 12, 4, TILE.TOGGLE);
-    addPlatform(room, 12, 9, 4, TILE.CRACK);
-    addHazardLine(room, 8, 16, 5, TILE.SPIKE);
-    placeBattery(room, 13, 8);
-  } else if (route === 1) {
-    addHazardLine(room, 5, 16, 8, TILE.WATER);
-    room.stage[12][3] = TILE.BUBBLE;
-    room.stage[10][14] = TILE.FAN_L;
-    addPlatform(room, 9, 10, 4, TILE.CONV_R);
-    placeBattery(room, 10, 9);
-    addEnemy(room, 14, 16, -1);
-  } else if (route === 2) {
-    room.stage[14][6] = TILE.SPRING;
-    addPlatform(room, 9, 9, 5, TILE.TOGGLE);
-    room.stage[13][4] = TILE.SWITCH;
-    addHazardLine(room, 7, 16, 4, TILE.SPIKE);
-    placeBattery(room, 11, 8);
-  } else if (route === 3) {
-    addPlatform(room, 5, 12, 4, TILE.CRACK);
-    addPlatform(room, 12, 10, 5, TILE.CONV_L);
-    addHazardLine(room, 7, 16, 3, TILE.WATER);
-    placeBattery(room, 14, 9);
-    addEnemy(room, 9, 16, 1);
-  } else if (route === 4) {
-    addHazardLine(room, 6, 16, 6, TILE.SPIKE);
-    room.stage[13][3] = TILE.BUBBLE;
-    addMovingPlatform(room, 8, 10, 3, 1);
-    placeBattery(room, 9, 9);
-  } else if (route === 5) {
-    addPlatform(room, 7, 13, 4, TILE.CONV_R);
-    room.stage[11][15] = TILE.FAN_L;
-    addPlatform(room, 12, 8, 4, TILE.CRACK);
-    addHazardLine(room, 5, 16, 4, TILE.WATER);
-    placeBattery(room, 14, 7);
-    addEnemy(room, 13, 16, -1);
-  } else if (route === 6) {
-    room.stage[15][4] = TILE.SWITCH;
-    addPlatform(room, 7, 12, 3, TILE.TOGGLE);
-    addPlatform(room, 11, 9, 4, TILE.TOGGLE);
-    room.stage[15][14] = TILE.SPRING;
-    addHazardLine(room, 7, 16, 5, TILE.WATER);
-    placeBattery(room, 12, 8);
-  } else {
-    addPlatform(room, 6, 12, 4, TILE.CRACK);
-    addPlatform(room, 12, 11, 5, TILE.CONV_R);
-    addHazardLine(room, 5, 16, 4, TILE.SPIKE);
-    addHazardLine(room, 12, 16, 4, TILE.WATER);
-    room.stage[10][4] = TILE.BUBBLE;
-    placeBattery(room, 13, 10);
-    addEnemy(room, 8, 16, 1);
-    addEnemy(room, 14, 16, -1);
-  }
-}
-
 export function generateAdventureLevel(level) {
   const safeLevel = Math.max(0, Math.min(LEVEL_COUNT - 1, Number(level) || 0));
-  const world = safeLevel >> 4;
-  const local = safeLevel & 15;
-  const room = beginRoom(world);
-  room.level = safeLevel;
-  room.local = local;
-
-  if (world === 0 && local < 8) buildTutorialRoom(room, local);
-  else if (world === 0) buildIntroRoom(room, local);
-  else if (world === 1) buildSwitchRoom(room, local);
-  else if (world === 2) buildWaterRoom(room, local);
-  else if (world === 3) buildMotionRoom(room, local);
-  else buildMixedRoom(room, local);
-
-  enrichAdventureRoom(room, world, local);
-  softenExit(room);
-  return room;
+  return roomsJson[safeLevel];
 }
 
 export function generateAdventureLevels() {
-  return Array.from({ length: LEVEL_COUNT }, (_, index) => generateAdventureLevel(index));
+  return roomsJson;
 }
+
 
 function fillBase(ctx, x, y) {
   ctx.fillStyle = PALETTE.white;
@@ -700,16 +222,17 @@ function drawTile(ctx, tile, x, y, switchOn = true) {
     ctx.fillRect(x + 4, y + 5, 3, 1);
     return;
   }
-  if (tile === TILE.COIN || tile === TILE.BATTERY || tile === TILE.BUBBLE) {
-    if (tile === TILE.BATTERY) {
+  if (tile === TILE.COIN || tile === TILE.KEY || tile === TILE.BUBBLE) {
+    if (tile === TILE.KEY) {
       drawPixelPattern(ctx, x, y, [
-        "  ####  ",
-        " #    # ",
-        "# #  # #",
-        "# #  # #",
-        "# #  # #",
-        " #    # ",
-        "  ####  "
+        " ###    ",
+        "#   #   ",
+        "#   #   ",
+        " ###    ",
+        "  #     ",
+        "  #     ",
+        "  ###   ",
+        "  #     "
       ]);
       return;
     }
