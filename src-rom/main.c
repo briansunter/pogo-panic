@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <string.h>
 #include "game-logic.h"
+#include "tile-art.h"
 
 #define FONT_BASE 24
 #define SPRITE_BASE 96
@@ -12,8 +13,8 @@
 #define TITLE_PRESENTS_END 180u
 #define TITLE_INTRO_DONE 216u
 
-#define TILE8(a,b,c,d,e,f,g,h) a,a,b,b,c,c,d,d,e,e,f,f,g,g,h,h
-#define TILE2(a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p) a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p
+/* TILE2 / TILE8 macros live in tile-art.h so they're shared with the
+ * host-side dumper that reads bg_tiles[]. */
 
 /* ============================================================ */
 /* Music engine                                                 */
@@ -25,13 +26,12 @@
 /*   music_update()       - call once per frame                 */
 /*   init_sound()         - one-time hardware init              */
 /*                                                              */
-/* Everything else is private. The five state variables         */
-/* (music_track, music_step, music_frame, music_paused,         */
-/* music_sfx_timer) are static so the rest of main.c cannot     */
-/* read or write them directly.                                 */
+/* Everything else is private. Music state is static so the     */
+/* rest of main.c cannot read or write it directly.             */
 /* ============================================================ */
 
 #define NOTE_REST 0u
+#define NOTE_HOLD 0xffffu
 #define NOTE_C3 1046u
 #define NOTE_CS3 1102u
 #define NOTE_D3 1155u
@@ -106,32 +106,8 @@ enum GameState {
     STATE_DEAD
 };
 
-static const uint8_t bg_tiles[] = {
-    TILE2(0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00), /* empty */
-    TILE2(0xff,0x00,0x81,0x7e,0x81,0x66,0x81,0x7e,0x81,0x7e,0xff,0x00,0xff,0xff,0xff,0xff), /* solid */
-    TILE2(0xff,0x00,0x81,0x7e,0x99,0x5a,0x8d,0x6e,0x99,0x5a,0x81,0x7e,0xff,0xff,0xff,0xff), /* crack */
-    TILE2(0x00,0x00,0x3c,0x3c,0x18,0x18,0x3c,0x3c,0x66,0x66,0x3c,0x3c,0x18,0x18,0x3c,0x3c), /* spring */
-    TILE2(0x00,0x00,0x10,0x10,0x10,0x10,0x38,0x38,0x38,0x38,0x7c,0x7c,0x7c,0xfe,0xff,0xff), /* spikes */
-    TILE2(0x00,0x00,0x18,0x18,0x24,0x24,0x42,0x42,0x42,0x42,0x24,0x24,0x18,0x18,0x00,0x00), /* coin */
-    TILE2(0x70,0x70,0x88,0x88,0x88,0x88,0x70,0x70,0x20,0x20,0x20,0x20,0x38,0x38,0x20,0x20), /* key */
-    TILE2(0x7e,0xff,0x7e,0xc3,0x66,0xdb,0x66,0xdb,0x66,0xdb,0x66,0xdb,0x7e,0xc3,0x7e,0xff), /* exit */
-    TILE2(0x00,0x00,0x3c,0x00,0x42,0x3c,0x5a,0x3c,0x5a,0x3c,0x24,0x18,0x7e,0x00,0x00,0x00), /* switch */
-    TILE2(0xff,0xff,0xff,0x81,0xc3,0xbd,0xdb,0xa5,0xdb,0xa5,0xc3,0xbd,0xff,0x81,0xff,0xff), /* toggle */
-    TILE2(0x10,0x00,0x30,0x10,0x7e,0x3c,0x7e,0xfe,0x7e,0xfe,0x7e,0x3c,0x30,0x10,0x10,0x00), /* fan left */
-    TILE2(0x08,0x00,0x0c,0x08,0x7e,0x3c,0x7e,0x7f,0x7e,0x7f,0x7e,0x3c,0x0c,0x08,0x08,0x00), /* fan right */
-    TILE2(0xff,0x00,0x81,0x7e,0xa5,0x66,0x89,0x4e,0xa5,0x66,0x81,0x7e,0x7e,0xff,0xff,0xff), /* conveyor left */
-    TILE2(0xff,0x00,0x81,0x7e,0xa5,0x66,0x91,0x72,0xa5,0x66,0x81,0x7e,0x7e,0xff,0xff,0xff), /* conveyor right */
-    TILE2(0x00,0x00,0x66,0x00,0x99,0x66,0x66,0x99,0x99,0x66,0x66,0x99,0x99,0x66,0x66,0x00), /* water */
-    TILE2(0x00,0x00,0x3c,0x00,0x42,0x3c,0x99,0x66,0x99,0x66,0x42,0x3c,0x3c,0x00,0x00,0x00), /* bubble */
-    TILE2(0xff,0x00,0x81,0x7e,0xbd,0x7e,0xa5,0x7e,0xa5,0x7e,0xbd,0x7e,0x81,0x7e,0xff,0x00), /* moving */
-    TILE2(0x18,0x00,0x24,0x18,0x5a,0x3c,0xbd,0x7e,0x7e,0xff,0xbd,0x7e,0x5a,0x3c,0x24,0x18), /* rock */
-    TILE2(0x81,0x81,0x00,0x00,0x3c,0x00,0x24,0x00,0x24,0x00,0x3c,0x00,0x00,0x00,0x81,0x81), /* toggle off */
-    TILE2(0x18,0x18,0x18,0x18,0x18,0x18,0x7e,0x7e,0x3c,0x3c,0x18,0x18,0x00,0x00,0x00,0x00), /* arrow down */
-    TILE2(0x10,0x10,0x18,0x18,0x1c,0x1c,0xfe,0xfe,0xfe,0xfe,0x1c,0x1c,0x18,0x18,0x10,0x10), /* arrow right */
-    TILE2(0xff,0xff,0x81,0xff,0xbd,0xc3,0x81,0xff,0x81,0xff,0xbd,0xc3,0x81,0xff,0xff,0xff), /* wall */
-    TILE2(0x00,0xff,0x00,0xff,0x00,0xff,0x00,0xff,0x00,0xff,0x00,0xff,0x00,0xff,0x00,0xff), /* title shadow */
-    TILE2(0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff)  /* title fill */
-};
+/* bg_tiles[] now lives in src-rom/tile-art.c so the host-side dump tool
+ * (tools/dump-tiles.c) can link against the same byte array. */
 
 static const uint8_t sprite_tiles[] = {
     TILE2(0x38,0x38,0x38,0x38,0x7c,0x7c,0x38,0x38,0x28,0x28,0x10,0x10,0x38,0x38,0x10,0x10), /* player */
@@ -240,263 +216,331 @@ static uint8_t music_step = 0;
 static uint8_t music_frame = 0;
 static uint8_t music_paused = 0;
 static uint8_t music_sfx_timer = 0;
+static uint8_t music_sfx_priority = 0;
 
 static const uint8_t bass_wave[] = {
     0x89, 0xab, 0xcd, 0xef, 0xfe, 0xdc, 0xba, 0x98,
     0x76, 0x54, 0x32, 0x10, 0x01, 0x23, 0x45, 0x67
 };
 
-static const uint16_t title_lead[] = {
-    NOTE_C5, NOTE_E5, NOTE_G5, NOTE_C6, NOTE_REST, NOTE_G5, NOTE_E5, NOTE_G5,
-    NOTE_A5, NOTE_G5, NOTE_E5, NOTE_C5, NOTE_D5, NOTE_E5, NOTE_G5, NOTE_REST,
-    NOTE_F5, NOTE_A5, NOTE_C6, NOTE_A5, NOTE_G5, NOTE_E5, NOTE_D5, NOTE_REST,
-    NOTE_C5, NOTE_D5, NOTE_E5, NOTE_G5, NOTE_C6, NOTE_B5, NOTE_G5, NOTE_REST
+typedef struct MusicStep {
+    uint16_t lead;
+    uint16_t harmony;
+    uint16_t bass;
+    uint8_t drum;
+} MusicStep;
+
+typedef struct MusicTrackDef {
+    const MusicStep *steps;
+    uint8_t length;
+    uint8_t step_delay;
+    uint8_t loop;
+    uint8_t lead_volume;
+    uint8_t harmony_volume;
+    uint8_t lead_duty;
+    uint8_t harmony_duty;
+    uint8_t wave_level;
+} MusicTrackDef;
+
+#define WAVE_FULL 0x20u
+#define WAVE_HALF 0x40u
+#define WAVE_QUIET 0x60u
+#define STEP(lead, harmony, bass, drum) { lead, harmony, bass, drum }
+#define TRACK_LEN(steps) (uint8_t)(sizeof(steps) / sizeof((steps)[0]))
+
+static const MusicStep title_steps[] = {
+    STEP(NOTE_C5, NOTE_C4, BASS_C3, DRUM_KICK),
+    STEP(NOTE_E5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_G5, NOTE_E4, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_A5, NOTE_HOLD, BASS_G3, DRUM_HAT),
+    STEP(NOTE_G5, NOTE_G4, NOTE_HOLD, DRUM_SNARE),
+    STEP(NOTE_E5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_D5, NOTE_E4, BASS_G3, DRUM_HAT),
+    STEP(NOTE_G5, NOTE_HOLD, NOTE_REST, DRUM_HAT),
+    STEP(NOTE_A5, NOTE_F4, BASS_F3, DRUM_KICK),
+    STEP(NOTE_C6, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_B5, NOTE_A4, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_G5, NOTE_HOLD, BASS_C3, DRUM_HAT),
+    STEP(NOTE_E5, NOTE_E4, NOTE_HOLD, DRUM_SNARE),
+    STEP(NOTE_G5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_A5, NOTE_G4, BASS_G3, DRUM_KICK),
+    STEP(NOTE_REST, NOTE_HOLD, NOTE_REST, DRUM_HAT),
+    STEP(NOTE_F5, NOTE_F4, BASS_F3, DRUM_KICK),
+    STEP(NOTE_A5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_C6, NOTE_A4, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_A5, NOTE_HOLD, BASS_C3, DRUM_HAT),
+    STEP(NOTE_G5, NOTE_E4, NOTE_HOLD, DRUM_SNARE),
+    STEP(NOTE_E5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_D5, NOTE_G4, BASS_G3, DRUM_HAT),
+    STEP(NOTE_REST, NOTE_HOLD, NOTE_REST, DRUM_HAT),
+    STEP(NOTE_C5, NOTE_C4, BASS_C3, DRUM_KICK),
+    STEP(NOTE_D5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_E5, NOTE_E4, BASS_G3, DRUM_KICK),
+    STEP(NOTE_G5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_C6, NOTE_G4, BASS_C3, DRUM_SNARE),
+    STEP(NOTE_B5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_G5, NOTE_C5, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_REST, NOTE_REST, NOTE_REST, DRUM_HAT)
 };
 
-static const uint16_t title_harmony[] = {
-    NOTE_C4, NOTE_REST, NOTE_E4, NOTE_REST, NOTE_G4, NOTE_REST, NOTE_E4, NOTE_REST,
-    NOTE_F4, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_G4, NOTE_REST, NOTE_B4, NOTE_REST,
-    NOTE_F4, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_E4, NOTE_REST, NOTE_G4, NOTE_REST,
-    NOTE_C4, NOTE_REST, NOTE_G4, NOTE_REST, NOTE_E4, NOTE_G4, NOTE_C5, NOTE_REST
+static const MusicStep play_steps[] = {
+    STEP(NOTE_C5, NOTE_C4, BASS_C3, DRUM_KICK),
+    STEP(NOTE_E5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_G5, NOTE_E4, BASS_G3, DRUM_HAT),
+    STEP(NOTE_A5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_G5, NOTE_G4, BASS_A3, DRUM_SNARE),
+    STEP(NOTE_E5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_D5, NOTE_E4, BASS_G3, DRUM_KICK),
+    STEP(NOTE_G5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_E5, NOTE_C4, BASS_C3, DRUM_KICK),
+    STEP(NOTE_G5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_C6, NOTE_G4, BASS_G3, DRUM_KICK),
+    STEP(NOTE_REST, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_B5, NOTE_E4, BASS_E3, DRUM_SNARE),
+    STEP(NOTE_G5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_E5, NOTE_G4, BASS_G3, DRUM_HAT),
+    STEP(NOTE_D5, NOTE_HOLD, NOTE_REST, DRUM_HAT),
+    STEP(NOTE_F5, NOTE_F4, BASS_F3, DRUM_KICK),
+    STEP(NOTE_A5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_C6, NOTE_A4, BASS_C3, DRUM_HAT),
+    STEP(NOTE_A5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_G5, NOTE_C5, BASS_A3, DRUM_SNARE),
+    STEP(NOTE_E5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_C5, NOTE_A4, BASS_C3, DRUM_KICK),
+    STEP(NOTE_E5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_D5, NOTE_G4, BASS_G3, DRUM_KICK),
+    STEP(NOTE_F5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_A5, NOTE_B4, BASS_D3, DRUM_HAT),
+    STEP(NOTE_REST, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_G5, NOTE_D5, BASS_G3, DRUM_SNARE),
+    STEP(NOTE_A5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_B5, NOTE_G4, BASS_C3, DRUM_KICK),
+    STEP(NOTE_REST, NOTE_REST, NOTE_REST, DRUM_HAT)
 };
 
-static const uint16_t title_bass[] = {
-    BASS_C3, NOTE_REST, NOTE_REST, BASS_G3, BASS_C3, NOTE_REST, BASS_G3, NOTE_REST,
-    BASS_F3, NOTE_REST, NOTE_REST, BASS_C3, BASS_G3, NOTE_REST, BASS_D3, NOTE_REST,
-    BASS_F3, NOTE_REST, NOTE_REST, BASS_C3, BASS_E3, NOTE_REST, BASS_G3, NOTE_REST,
-    BASS_C3, NOTE_REST, BASS_G3, NOTE_REST, BASS_C3, NOTE_REST, NOTE_REST, NOTE_REST
+static const MusicStep switch_steps[] = {
+    STEP(NOTE_D5, NOTE_D4, BASS_D3, DRUM_KICK),
+    STEP(NOTE_F5, NOTE_HOLD, NOTE_HOLD, DRUM_TICK),
+    STEP(NOTE_A5, NOTE_A4, BASS_A3, DRUM_HAT),
+    STEP(NOTE_F5, NOTE_HOLD, NOTE_HOLD, DRUM_TICK),
+    STEP(NOTE_D5, NOTE_F4, BASS_D3, DRUM_SNARE),
+    STEP(NOTE_REST, NOTE_HOLD, NOTE_HOLD, DRUM_TICK),
+    STEP(NOTE_F5, NOTE_A4, BASS_A3, DRUM_HAT),
+    STEP(NOTE_REST, NOTE_HOLD, NOTE_REST, DRUM_TICK),
+    STEP(NOTE_A4, NOTE_D4, BASS_D3, DRUM_KICK),
+    STEP(NOTE_D5, NOTE_HOLD, NOTE_HOLD, DRUM_TICK),
+    STEP(NOTE_F5, NOTE_F4, BASS_F3, DRUM_KICK),
+    STEP(NOTE_A5, NOTE_HOLD, NOTE_HOLD, DRUM_TICK),
+    STEP(NOTE_G5, NOTE_A4, BASS_A3, DRUM_SNARE),
+    STEP(NOTE_F5, NOTE_HOLD, NOTE_HOLD, DRUM_TICK),
+    STEP(NOTE_E5, NOTE_C5, BASS_C3, DRUM_HAT),
+    STEP(NOTE_C5, NOTE_HOLD, NOTE_REST, DRUM_TICK),
+    STEP(NOTE_D5, NOTE_G4, BASS_G3, DRUM_KICK),
+    STEP(NOTE_F5, NOTE_HOLD, NOTE_HOLD, DRUM_TICK),
+    STEP(NOTE_A5, NOTE_D5, BASS_D3, DRUM_HAT),
+    STEP(NOTE_C6, NOTE_HOLD, NOTE_HOLD, DRUM_TICK),
+    STEP(NOTE_A5, NOTE_A4, BASS_A3, DRUM_SNARE),
+    STEP(NOTE_G5, NOTE_HOLD, NOTE_HOLD, DRUM_TICK),
+    STEP(NOTE_F5, NOTE_G4, BASS_G3, DRUM_HAT),
+    STEP(NOTE_D5, NOTE_HOLD, NOTE_REST, DRUM_TICK),
+    STEP(NOTE_DS5, NOTE_D4, BASS_D3, DRUM_KICK),
+    STEP(NOTE_F5, NOTE_HOLD, NOTE_HOLD, DRUM_TICK),
+    STEP(NOTE_G5, NOTE_F4, BASS_A3, DRUM_SNARE),
+    STEP(NOTE_A5, NOTE_HOLD, NOTE_HOLD, DRUM_TICK),
+    STEP(NOTE_C6, NOTE_A4, BASS_D3, DRUM_BOOM),
+    STEP(NOTE_A5, NOTE_C5, NOTE_HOLD, DRUM_TICK),
+    STEP(NOTE_F5, NOTE_A4, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_REST, NOTE_REST, NOTE_REST, DRUM_TICK)
 };
 
-static const uint8_t title_drums[] = {
-    DRUM_KICK, DRUM_HAT, DRUM_HAT, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_HAT, DRUM_HAT,
-    DRUM_KICK, DRUM_HAT, DRUM_HAT, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_HAT, DRUM_HAT,
-    DRUM_KICK, DRUM_HAT, DRUM_HAT, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_HAT, DRUM_HAT,
-    DRUM_KICK, DRUM_HAT, DRUM_KICK, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_HAT, DRUM_HAT
+static const MusicStep water_steps[] = {
+    STEP(NOTE_F5, NOTE_F4, BASS_F3, DRUM_KICK),
+    STEP(NOTE_A5, NOTE_REST, NOTE_HOLD, DRUM_NONE),
+    STEP(NOTE_C6, NOTE_A4, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_A5, NOTE_REST, BASS_C3, DRUM_NONE),
+    STEP(NOTE_G5, NOTE_C5, NOTE_HOLD, DRUM_TICK),
+    STEP(NOTE_E5, NOTE_REST, NOTE_HOLD, DRUM_NONE),
+    STEP(NOTE_C5, NOTE_A4, NOTE_REST, DRUM_HAT),
+    STEP(NOTE_REST, NOTE_REST, NOTE_REST, DRUM_NONE),
+    STEP(NOTE_D5, NOTE_D4, BASS_D3, DRUM_NONE),
+    STEP(NOTE_F5, NOTE_REST, NOTE_HOLD, DRUM_NONE),
+    STEP(NOTE_A5, NOTE_A4, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_F5, NOTE_REST, BASS_A3, DRUM_NONE),
+    STEP(NOTE_E5, NOTE_G4, BASS_G3, DRUM_SNARE),
+    STEP(NOTE_G5, NOTE_REST, NOTE_HOLD, DRUM_NONE),
+    STEP(NOTE_C6, NOTE_C5, NOTE_REST, DRUM_HAT),
+    STEP(NOTE_REST, NOTE_REST, NOTE_REST, DRUM_NONE),
+    STEP(NOTE_A4, NOTE_F4, BASS_F3, DRUM_KICK),
+    STEP(NOTE_C5, NOTE_REST, NOTE_HOLD, DRUM_NONE),
+    STEP(NOTE_F5, NOTE_A4, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_A5, NOTE_REST, BASS_C3, DRUM_NONE),
+    STEP(NOTE_G5, NOTE_C5, BASS_A3, DRUM_TICK),
+    STEP(NOTE_F5, NOTE_REST, NOTE_HOLD, DRUM_NONE),
+    STEP(NOTE_D5, NOTE_A4, NOTE_REST, DRUM_HAT),
+    STEP(NOTE_REST, NOTE_REST, NOTE_REST, DRUM_NONE),
+    STEP(NOTE_E5, NOTE_G4, BASS_G3, DRUM_NONE),
+    STEP(NOTE_G5, NOTE_REST, NOTE_HOLD, DRUM_NONE),
+    STEP(NOTE_A5, NOTE_C5, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_C6, NOTE_REST, BASS_C3, DRUM_NONE),
+    STEP(NOTE_A5, NOTE_A4, BASS_F3, DRUM_SNARE),
+    STEP(NOTE_G5, NOTE_REST, NOTE_HOLD, DRUM_NONE),
+    STEP(NOTE_F5, NOTE_F4, NOTE_REST, DRUM_TICK),
+    STEP(NOTE_REST, NOTE_REST, NOTE_REST, DRUM_NONE)
 };
 
-static const uint16_t play_lead[] = {
-    NOTE_C5, NOTE_E5, NOTE_G5, NOTE_A5, NOTE_G5, NOTE_E5, NOTE_D5, NOTE_G5,
-    NOTE_E5, NOTE_G5, NOTE_C6, NOTE_REST, NOTE_B5, NOTE_G5, NOTE_E5, NOTE_D5,
-    NOTE_F5, NOTE_A5, NOTE_C6, NOTE_A5, NOTE_G5, NOTE_E5, NOTE_C5, NOTE_E5,
-    NOTE_D5, NOTE_F5, NOTE_A5, NOTE_REST, NOTE_G5, NOTE_A5, NOTE_B5, NOTE_REST,
-    NOTE_E5, NOTE_G5, NOTE_A5, NOTE_C6, NOTE_A5, NOTE_G5, NOTE_E5, NOTE_G5,
-    NOTE_C5, NOTE_D5, NOTE_E5, NOTE_G5, NOTE_F5, NOTE_E5, NOTE_D5, NOTE_C5,
-    NOTE_A4, NOTE_C5, NOTE_E5, NOTE_G5, NOTE_A5, NOTE_G5, NOTE_F5, NOTE_D5,
-    NOTE_E5, NOTE_G5, NOTE_C6, NOTE_B5, NOTE_A5, NOTE_G5, NOTE_E5, NOTE_REST
+static const MusicStep motion_steps[] = {
+    STEP(NOTE_G5, NOTE_G4, BASS_G3, DRUM_KICK),
+    STEP(NOTE_A5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_B5, NOTE_D5, BASS_D3, DRUM_TICK),
+    STEP(NOTE_G5, NOTE_HOLD, BASS_G3, DRUM_HAT),
+    STEP(NOTE_D5, NOTE_B4, BASS_B3, DRUM_SNARE),
+    STEP(NOTE_E5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_G5, NOTE_D5, BASS_D3, DRUM_TICK),
+    STEP(NOTE_B5, NOTE_HOLD, NOTE_REST, DRUM_HAT),
+    STEP(NOTE_A5, NOTE_C5, BASS_A3, DRUM_KICK),
+    STEP(NOTE_G5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_E5, NOTE_A4, BASS_E3, DRUM_KICK),
+    STEP(NOTE_D5, NOTE_HOLD, BASS_A3, DRUM_HAT),
+    STEP(NOTE_G5, NOTE_G4, BASS_G3, DRUM_SNARE),
+    STEP(NOTE_REST, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_B5, NOTE_B4, BASS_D3, DRUM_TICK),
+    STEP(NOTE_REST, NOTE_HOLD, NOTE_REST, DRUM_HAT),
+    STEP(NOTE_C6, NOTE_C5, BASS_C3, DRUM_KICK),
+    STEP(NOTE_B5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_A5, NOTE_G4, BASS_G3, DRUM_TICK),
+    STEP(NOTE_G5, NOTE_HOLD, BASS_C3, DRUM_HAT),
+    STEP(NOTE_E5, NOTE_E4, BASS_E3, DRUM_SNARE),
+    STEP(NOTE_G5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_A5, NOTE_G4, BASS_G3, DRUM_KICK),
+    STEP(NOTE_C6, NOTE_HOLD, NOTE_REST, DRUM_HAT),
+    STEP(NOTE_B5, NOTE_D5, BASS_D3, DRUM_BOOM),
+    STEP(NOTE_G5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_E5, NOTE_B4, BASS_A3, DRUM_TICK),
+    STEP(NOTE_D5, NOTE_HOLD, BASS_D3, DRUM_HAT),
+    STEP(NOTE_G5, NOTE_G4, BASS_G3, DRUM_SNARE),
+    STEP(NOTE_A5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_B5, NOTE_D5, NOTE_HOLD, DRUM_KICK),
+    STEP(NOTE_REST, NOTE_REST, NOTE_REST, DRUM_HAT)
 };
 
-static const uint16_t play_harmony[] = {
-    NOTE_C4, NOTE_REST, NOTE_E4, NOTE_REST, NOTE_G4, NOTE_REST, NOTE_E4, NOTE_REST,
-    NOTE_C4, NOTE_REST, NOTE_G4, NOTE_REST, NOTE_E4, NOTE_REST, NOTE_G4, NOTE_REST,
-    NOTE_F4, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_C5, NOTE_REST, NOTE_A4, NOTE_REST,
-    NOTE_G4, NOTE_REST, NOTE_B4, NOTE_REST, NOTE_D5, NOTE_REST, NOTE_B4, NOTE_REST,
-    NOTE_C4, NOTE_REST, NOTE_E4, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_G4, NOTE_REST,
-    NOTE_F4, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_G4, NOTE_REST, NOTE_E4, NOTE_REST,
-    NOTE_F4, NOTE_REST, NOTE_C5, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_F4, NOTE_REST,
-    NOTE_G4, NOTE_REST, NOTE_B4, NOTE_REST, NOTE_C5, NOTE_REST, NOTE_G4, NOTE_REST
+static const MusicStep mixed_steps[] = {
+    STEP(NOTE_A5, NOTE_A4, BASS_A3, DRUM_BOOM),
+    STEP(NOTE_C6, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_B5, NOTE_E5, BASS_E3, DRUM_HAT),
+    STEP(NOTE_G5, NOTE_HOLD, NOTE_HOLD, DRUM_TICK),
+    STEP(NOTE_E5, NOTE_C5, BASS_A3, DRUM_SNARE),
+    STEP(NOTE_G5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_A5, NOTE_E5, BASS_G3, DRUM_KICK),
+    STEP(NOTE_REST, NOTE_HOLD, NOTE_REST, DRUM_HAT),
+    STEP(NOTE_F5, NOTE_F4, BASS_F3, DRUM_KICK),
+    STEP(NOTE_A5, NOTE_HOLD, NOTE_HOLD, DRUM_TICK),
+    STEP(NOTE_C6, NOTE_C5, BASS_C3, DRUM_HAT),
+    STEP(NOTE_A5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_GS5, NOTE_A4, BASS_F3, DRUM_SNARE),
+    STEP(NOTE_A5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_B5, NOTE_C5, BASS_E3, DRUM_TICK),
+    STEP(NOTE_REST, NOTE_HOLD, NOTE_REST, DRUM_HAT),
+    STEP(NOTE_E5, NOTE_E4, BASS_E3, DRUM_BOOM),
+    STEP(NOTE_G5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_A5, NOTE_B4, BASS_B3, DRUM_KICK),
+    STEP(NOTE_C6, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_B5, NOTE_G4, BASS_G3, DRUM_SNARE),
+    STEP(NOTE_A5, NOTE_HOLD, NOTE_HOLD, DRUM_TICK),
+    STEP(NOTE_G5, NOTE_B4, BASS_E3, DRUM_HAT),
+    STEP(NOTE_E5, NOTE_HOLD, NOTE_REST, DRUM_HAT),
+    STEP(NOTE_D5, NOTE_D4, BASS_D3, DRUM_KICK),
+    STEP(NOTE_F5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_A5, NOTE_A4, BASS_A3, DRUM_TICK),
+    STEP(NOTE_B5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_C6, NOTE_F4, BASS_F3, DRUM_SNARE),
+    STEP(NOTE_B5, NOTE_A4, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_A5, NOTE_C5, NOTE_REST, DRUM_BOOM),
+    STEP(NOTE_REST, NOTE_REST, NOTE_REST, DRUM_HAT)
 };
 
-static const uint16_t play_bass[] = {
-    BASS_C3, NOTE_REST, BASS_G3, NOTE_REST, BASS_A3, NOTE_REST, BASS_G3, NOTE_REST,
-    BASS_C3, NOTE_REST, BASS_G3, NOTE_REST, BASS_E3, NOTE_REST, BASS_G3, NOTE_REST,
-    BASS_F3, NOTE_REST, BASS_C3, NOTE_REST, BASS_A3, NOTE_REST, BASS_C3, NOTE_REST,
-    BASS_G3, NOTE_REST, BASS_D3, NOTE_REST, BASS_G3, NOTE_REST, BASS_B3, NOTE_REST,
-    BASS_C3, NOTE_REST, BASS_G3, NOTE_REST, BASS_A3, NOTE_REST, BASS_E3, NOTE_REST,
-    BASS_F3, NOTE_REST, BASS_C3, NOTE_REST, BASS_G3, NOTE_REST, BASS_C3, NOTE_REST,
-    BASS_F3, NOTE_REST, BASS_C3, NOTE_REST, BASS_A3, NOTE_REST, BASS_D3, NOTE_REST,
-    BASS_G3, NOTE_REST, BASS_D3, NOTE_REST, BASS_C3, NOTE_REST, NOTE_REST, NOTE_REST
+static const MusicStep panic_steps[] = {
+    STEP(NOTE_E5, NOTE_E4, BASS_E3, DRUM_BOOM),
+    STEP(NOTE_G5, NOTE_HOLD, BASS_E3, DRUM_HAT),
+    STEP(NOTE_B5, NOTE_B4, BASS_B3, DRUM_KICK),
+    STEP(NOTE_C6, NOTE_HOLD, NOTE_REST, DRUM_HAT),
+    STEP(NOTE_B5, NOTE_G4, BASS_E3, DRUM_SNARE),
+    STEP(NOTE_G5, NOTE_HOLD, BASS_E3, DRUM_HAT),
+    STEP(NOTE_E5, NOTE_B4, BASS_B3, DRUM_KICK),
+    STEP(NOTE_G5, NOTE_HOLD, NOTE_REST, DRUM_HAT),
+    STEP(NOTE_D5, NOTE_D4, BASS_D3, DRUM_KICK),
+    STEP(NOTE_FS5, NOTE_HOLD, BASS_D3, DRUM_HAT),
+    STEP(NOTE_A5, NOTE_A4, BASS_A3, DRUM_KICK),
+    STEP(NOTE_B5, NOTE_HOLD, NOTE_REST, DRUM_HAT),
+    STEP(NOTE_A5, NOTE_FS4, BASS_D3, DRUM_SNARE),
+    STEP(NOTE_FS5, NOTE_HOLD, BASS_D3, DRUM_HAT),
+    STEP(NOTE_D5, NOTE_A4, BASS_A3, DRUM_KICK),
+    STEP(NOTE_FS5, NOTE_HOLD, NOTE_REST, DRUM_HAT),
+    STEP(NOTE_E5, NOTE_E4, BASS_E3, DRUM_BOOM),
+    STEP(NOTE_G5, NOTE_HOLD, BASS_E3, DRUM_HAT),
+    STEP(NOTE_B5, NOTE_G4, BASS_B3, DRUM_KICK),
+    STEP(NOTE_E5, NOTE_HOLD, NOTE_REST, DRUM_HAT),
+    STEP(NOTE_C6, NOTE_B4, BASS_C3, DRUM_SNARE),
+    STEP(NOTE_B5, NOTE_HOLD, BASS_C3, DRUM_HAT),
+    STEP(NOTE_A5, NOTE_G4, BASS_G3, DRUM_BOOM),
+    STEP(NOTE_G5, NOTE_HOLD, NOTE_REST, DRUM_HAT),
+    STEP(NOTE_FS5, NOTE_D4, BASS_D3, DRUM_KICK),
+    STEP(NOTE_A5, NOTE_HOLD, BASS_D3, DRUM_HAT),
+    STEP(NOTE_C6, NOTE_A4, BASS_A3, DRUM_TICK),
+    STEP(NOTE_A5, NOTE_HOLD, NOTE_REST, DRUM_HAT),
+    STEP(NOTE_B5, NOTE_B4, BASS_E3, DRUM_SNARE),
+    STEP(NOTE_A5, NOTE_HOLD, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_G5, NOTE_E4, NOTE_HOLD, DRUM_BOOM),
+    STEP(NOTE_REST, NOTE_REST, NOTE_REST, DRUM_HAT)
 };
 
-static const uint8_t play_drums[] = {
-    DRUM_KICK, DRUM_HAT, DRUM_HAT, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_HAT, DRUM_HAT,
-    DRUM_KICK, DRUM_HAT, DRUM_KICK, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_HAT, DRUM_HAT,
-    DRUM_KICK, DRUM_HAT, DRUM_HAT, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_KICK, DRUM_HAT,
-    DRUM_KICK, DRUM_HAT, DRUM_HAT, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_HAT, DRUM_HAT,
-    DRUM_KICK, DRUM_HAT, DRUM_HAT, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_KICK, DRUM_HAT,
-    DRUM_KICK, DRUM_HAT, DRUM_HAT, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_HAT, DRUM_HAT,
-    DRUM_KICK, DRUM_HAT, DRUM_HAT, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_KICK, DRUM_HAT,
-    DRUM_KICK, DRUM_HAT, DRUM_HAT, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_HAT, DRUM_HAT
+static const MusicStep clear_steps[] = {
+    STEP(NOTE_C5, NOTE_C4, BASS_C3, DRUM_KICK),
+    STEP(NOTE_E5, NOTE_E4, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_G5, NOTE_G4, BASS_G3, DRUM_HAT),
+    STEP(NOTE_C6, NOTE_C5, NOTE_HOLD, DRUM_SNARE),
+    STEP(NOTE_REST, NOTE_REST, NOTE_REST, DRUM_NONE),
+    STEP(NOTE_G5, NOTE_E4, BASS_C3, DRUM_HAT),
+    STEP(NOTE_A5, NOTE_F4, BASS_F3, DRUM_KICK),
+    STEP(NOTE_C6, NOTE_A4, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_B5, NOTE_G4, BASS_G3, DRUM_SNARE),
+    STEP(NOTE_A5, NOTE_F4, NOTE_HOLD, DRUM_HAT),
+    STEP(NOTE_G5, NOTE_E4, BASS_C3, DRUM_HAT),
+    STEP(NOTE_REST, NOTE_REST, NOTE_REST, DRUM_NONE),
+    STEP(NOTE_C6, NOTE_C5, BASS_C3, DRUM_KICK),
+    STEP(NOTE_HOLD, NOTE_HOLD, NOTE_HOLD, DRUM_NONE),
+    STEP(NOTE_REST, NOTE_REST, NOTE_REST, DRUM_NONE),
+    STEP(NOTE_REST, NOTE_REST, NOTE_REST, DRUM_NONE)
 };
 
-static const uint16_t switch_lead[] = {
-    NOTE_D5, NOTE_F5, NOTE_A5, NOTE_F5, NOTE_D5, NOTE_REST, NOTE_F5, NOTE_REST,
-    NOTE_A4, NOTE_D5, NOTE_F5, NOTE_A5, NOTE_G5, NOTE_F5, NOTE_E5, NOTE_C5,
-    NOTE_D5, NOTE_F5, NOTE_A5, NOTE_C6, NOTE_A5, NOTE_G5, NOTE_F5, NOTE_D5,
-    NOTE_DS5, NOTE_F5, NOTE_G5, NOTE_A5, NOTE_C6, NOTE_A5, NOTE_F5, NOTE_REST
+static const MusicStep dead_steps[] = {
+    STEP(NOTE_G4, NOTE_E4, BASS_G3, DRUM_SNARE),
+    STEP(NOTE_E4, NOTE_C4, NOTE_REST, DRUM_NONE),
+    STEP(NOTE_C4, NOTE_REST, BASS_C3, DRUM_KICK),
+    STEP(NOTE_REST, NOTE_REST, NOTE_REST, DRUM_NONE),
+    STEP(NOTE_D4, NOTE_C4, BASS_D3, DRUM_SNARE),
+    STEP(NOTE_C4, NOTE_REST, NOTE_REST, DRUM_NONE),
+    STEP(NOTE_REST, NOTE_REST, BASS_C3, DRUM_KICK),
+    STEP(NOTE_REST, NOTE_REST, NOTE_REST, DRUM_NONE),
+    STEP(NOTE_C4, NOTE_REST, NOTE_REST, DRUM_NONE),
+    STEP(NOTE_HOLD, NOTE_REST, NOTE_REST, DRUM_NONE),
+    STEP(NOTE_REST, NOTE_REST, NOTE_REST, DRUM_NONE),
+    STEP(NOTE_REST, NOTE_REST, NOTE_REST, DRUM_NONE)
 };
 
-static const uint16_t switch_harmony[] = {
-    NOTE_D4, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_F4, NOTE_REST, NOTE_A4, NOTE_REST,
-    NOTE_D4, NOTE_REST, NOTE_F4, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_C5, NOTE_REST,
-    NOTE_G4, NOTE_REST, NOTE_D5, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_G4, NOTE_REST,
-    NOTE_D4, NOTE_REST, NOTE_F4, NOTE_REST, NOTE_A4, NOTE_C5, NOTE_A4, NOTE_REST
+static const MusicTrackDef music_tracks[] = {
+    { 0, 0u, 8u, 0u, 0u, 0u, 0u, 0u, 0u },
+    { title_steps, TRACK_LEN(title_steps), 12u, 1u, 9u, 4u, AUDLEN_DUTY_50, AUDLEN_DUTY_25, WAVE_HALF },
+    { play_steps, TRACK_LEN(play_steps), 15u, 1u, 10u, 4u, AUDLEN_DUTY_50, AUDLEN_DUTY_25, WAVE_HALF },
+    { switch_steps, TRACK_LEN(switch_steps), 14u, 1u, 9u, 5u, AUDLEN_DUTY_12_5, AUDLEN_DUTY_25, WAVE_HALF },
+    { water_steps, TRACK_LEN(water_steps), 18u, 1u, 8u, 3u, AUDLEN_DUTY_75, AUDLEN_DUTY_50, WAVE_QUIET },
+    { motion_steps, TRACK_LEN(motion_steps), 12u, 1u, 10u, 5u, AUDLEN_DUTY_25, AUDLEN_DUTY_12_5, WAVE_HALF },
+    { mixed_steps, TRACK_LEN(mixed_steps), 14u, 1u, 10u, 5u, AUDLEN_DUTY_50, AUDLEN_DUTY_75, WAVE_HALF },
+    { panic_steps, TRACK_LEN(panic_steps), 10u, 1u, 12u, 6u, AUDLEN_DUTY_12_5, AUDLEN_DUTY_25, WAVE_FULL },
+    { clear_steps, TRACK_LEN(clear_steps), 11u, 0u, 10u, 5u, AUDLEN_DUTY_50, AUDLEN_DUTY_25, WAVE_HALF },
+    { dead_steps, TRACK_LEN(dead_steps), 15u, 0u, 8u, 3u, AUDLEN_DUTY_75, AUDLEN_DUTY_25, WAVE_QUIET }
 };
 
-static const uint16_t switch_bass[] = {
-    BASS_D3, NOTE_REST, BASS_A3, NOTE_REST, BASS_D3, NOTE_REST, BASS_A3, NOTE_REST,
-    BASS_D3, NOTE_REST, BASS_F3, NOTE_REST, BASS_A3, NOTE_REST, BASS_C3, NOTE_REST,
-    BASS_G3, NOTE_REST, BASS_D3, NOTE_REST, BASS_A3, NOTE_REST, BASS_G3, NOTE_REST,
-    BASS_D3, NOTE_REST, BASS_A3, NOTE_REST, BASS_D3, NOTE_REST, NOTE_REST, NOTE_REST
-};
-
-static const uint8_t switch_drums[] = {
-    DRUM_KICK, DRUM_TICK, DRUM_HAT, DRUM_TICK, DRUM_SNARE, DRUM_TICK, DRUM_HAT, DRUM_TICK,
-    DRUM_KICK, DRUM_TICK, DRUM_KICK, DRUM_TICK, DRUM_SNARE, DRUM_TICK, DRUM_HAT, DRUM_TICK,
-    DRUM_KICK, DRUM_TICK, DRUM_HAT, DRUM_TICK, DRUM_SNARE, DRUM_TICK, DRUM_HAT, DRUM_TICK,
-    DRUM_KICK, DRUM_TICK, DRUM_SNARE, DRUM_TICK, DRUM_BOOM, DRUM_TICK, DRUM_HAT, DRUM_TICK
-};
-
-static const uint16_t water_lead[] = {
-    NOTE_F5, NOTE_A5, NOTE_C6, NOTE_A5, NOTE_G5, NOTE_E5, NOTE_C5, NOTE_REST,
-    NOTE_D5, NOTE_F5, NOTE_A5, NOTE_F5, NOTE_E5, NOTE_G5, NOTE_C6, NOTE_REST,
-    NOTE_A4, NOTE_C5, NOTE_F5, NOTE_A5, NOTE_G5, NOTE_F5, NOTE_D5, NOTE_REST,
-    NOTE_E5, NOTE_G5, NOTE_A5, NOTE_C6, NOTE_A5, NOTE_G5, NOTE_F5, NOTE_REST
-};
-
-static const uint16_t water_harmony[] = {
-    NOTE_F4, NOTE_REST, NOTE_C5, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_F4, NOTE_REST,
-    NOTE_D4, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_G4, NOTE_REST, NOTE_C5, NOTE_REST,
-    NOTE_F4, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_C5, NOTE_REST, NOTE_A4, NOTE_REST,
-    NOTE_G4, NOTE_REST, NOTE_C5, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_F4, NOTE_REST
-};
-
-static const uint16_t water_bass[] = {
-    BASS_F3, NOTE_REST, NOTE_REST, BASS_C3, BASS_F3, NOTE_REST, NOTE_REST, NOTE_REST,
-    BASS_D3, NOTE_REST, NOTE_REST, BASS_A3, BASS_G3, NOTE_REST, NOTE_REST, NOTE_REST,
-    BASS_F3, NOTE_REST, NOTE_REST, BASS_C3, BASS_A3, NOTE_REST, NOTE_REST, NOTE_REST,
-    BASS_G3, NOTE_REST, NOTE_REST, BASS_C3, BASS_F3, NOTE_REST, NOTE_REST, NOTE_REST
-};
-
-static const uint8_t water_drums[] = {
-    DRUM_KICK, DRUM_NONE, DRUM_HAT, DRUM_NONE, DRUM_TICK, DRUM_NONE, DRUM_HAT, DRUM_NONE,
-    DRUM_NONE, DRUM_NONE, DRUM_HAT, DRUM_NONE, DRUM_SNARE, DRUM_NONE, DRUM_HAT, DRUM_NONE,
-    DRUM_KICK, DRUM_NONE, DRUM_HAT, DRUM_NONE, DRUM_NONE, DRUM_NONE, DRUM_HAT, DRUM_NONE,
-    DRUM_NONE, DRUM_NONE, DRUM_HAT, DRUM_NONE, DRUM_SNARE, DRUM_NONE, DRUM_TICK, DRUM_NONE
-};
-
-static const uint16_t motion_lead[] = {
-    NOTE_G5, NOTE_A5, NOTE_B5, NOTE_G5, NOTE_D5, NOTE_E5, NOTE_G5, NOTE_B5,
-    NOTE_A5, NOTE_G5, NOTE_E5, NOTE_D5, NOTE_G5, NOTE_REST, NOTE_B5, NOTE_REST,
-    NOTE_C6, NOTE_B5, NOTE_A5, NOTE_G5, NOTE_E5, NOTE_G5, NOTE_A5, NOTE_C6,
-    NOTE_B5, NOTE_G5, NOTE_E5, NOTE_D5, NOTE_G5, NOTE_A5, NOTE_B5, NOTE_REST
-};
-
-static const uint16_t motion_harmony[] = {
-    NOTE_G4, NOTE_REST, NOTE_D5, NOTE_REST, NOTE_B4, NOTE_REST, NOTE_D5, NOTE_REST,
-    NOTE_C5, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_G4, NOTE_REST, NOTE_B4, NOTE_REST,
-    NOTE_C5, NOTE_REST, NOTE_G4, NOTE_REST, NOTE_E4, NOTE_REST, NOTE_G4, NOTE_REST,
-    NOTE_D5, NOTE_REST, NOTE_B4, NOTE_REST, NOTE_G4, NOTE_REST, NOTE_D5, NOTE_REST
-};
-
-static const uint16_t motion_bass[] = {
-    BASS_G3, NOTE_REST, BASS_D3, BASS_G3, BASS_B3, NOTE_REST, BASS_D3, NOTE_REST,
-    BASS_A3, NOTE_REST, BASS_E3, BASS_A3, BASS_G3, NOTE_REST, BASS_D3, NOTE_REST,
-    BASS_C3, NOTE_REST, BASS_G3, BASS_C3, BASS_E3, NOTE_REST, BASS_G3, NOTE_REST,
-    BASS_D3, NOTE_REST, BASS_A3, BASS_D3, BASS_G3, NOTE_REST, NOTE_REST, NOTE_REST
-};
-
-static const uint8_t motion_drums[] = {
-    DRUM_KICK, DRUM_HAT, DRUM_TICK, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_TICK, DRUM_HAT,
-    DRUM_KICK, DRUM_HAT, DRUM_KICK, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_TICK, DRUM_HAT,
-    DRUM_KICK, DRUM_HAT, DRUM_TICK, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_KICK, DRUM_HAT,
-    DRUM_BOOM, DRUM_HAT, DRUM_TICK, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_KICK, DRUM_HAT
-};
-
-static const uint16_t mixed_lead[] = {
-    NOTE_A5, NOTE_C6, NOTE_B5, NOTE_G5, NOTE_E5, NOTE_G5, NOTE_A5, NOTE_REST,
-    NOTE_F5, NOTE_A5, NOTE_C6, NOTE_A5, NOTE_GS5, NOTE_A5, NOTE_B5, NOTE_REST,
-    NOTE_E5, NOTE_G5, NOTE_A5, NOTE_C6, NOTE_B5, NOTE_A5, NOTE_G5, NOTE_E5,
-    NOTE_D5, NOTE_F5, NOTE_A5, NOTE_B5, NOTE_C6, NOTE_B5, NOTE_A5, NOTE_REST
-};
-
-static const uint16_t mixed_harmony[] = {
-    NOTE_A4, NOTE_REST, NOTE_E5, NOTE_REST, NOTE_C5, NOTE_REST, NOTE_E5, NOTE_REST,
-    NOTE_F4, NOTE_REST, NOTE_C5, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_C5, NOTE_REST,
-    NOTE_E4, NOTE_REST, NOTE_B4, NOTE_REST, NOTE_G4, NOTE_REST, NOTE_B4, NOTE_REST,
-    NOTE_D4, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_F4, NOTE_A4, NOTE_C5, NOTE_REST
-};
-
-static const uint16_t mixed_bass[] = {
-    BASS_A3, NOTE_REST, BASS_E3, NOTE_REST, BASS_A3, NOTE_REST, BASS_G3, NOTE_REST,
-    BASS_F3, NOTE_REST, BASS_C3, NOTE_REST, BASS_F3, NOTE_REST, BASS_E3, NOTE_REST,
-    BASS_E3, NOTE_REST, BASS_B3, NOTE_REST, BASS_G3, NOTE_REST, BASS_E3, NOTE_REST,
-    BASS_D3, NOTE_REST, BASS_A3, NOTE_REST, BASS_F3, NOTE_REST, NOTE_REST, NOTE_REST
-};
-
-static const uint8_t mixed_drums[] = {
-    DRUM_BOOM, DRUM_HAT, DRUM_HAT, DRUM_TICK, DRUM_SNARE, DRUM_HAT, DRUM_KICK, DRUM_HAT,
-    DRUM_KICK, DRUM_TICK, DRUM_HAT, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_TICK, DRUM_HAT,
-    DRUM_BOOM, DRUM_HAT, DRUM_KICK, DRUM_HAT, DRUM_SNARE, DRUM_TICK, DRUM_HAT, DRUM_HAT,
-    DRUM_KICK, DRUM_HAT, DRUM_TICK, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_BOOM, DRUM_HAT
-};
-
-static const uint16_t panic_lead[] = {
-    NOTE_E5, NOTE_G5, NOTE_B5, NOTE_C6, NOTE_B5, NOTE_G5, NOTE_E5, NOTE_G5,
-    NOTE_D5, NOTE_FS5, NOTE_A5, NOTE_B5, NOTE_A5, NOTE_FS5, NOTE_D5, NOTE_FS5,
-    NOTE_E5, NOTE_G5, NOTE_B5, NOTE_E5, NOTE_C6, NOTE_B5, NOTE_A5, NOTE_G5,
-    NOTE_FS5, NOTE_A5, NOTE_C6, NOTE_A5, NOTE_B5, NOTE_A5, NOTE_G5, NOTE_REST
-};
-
-static const uint16_t panic_harmony[] = {
-    NOTE_E4, NOTE_REST, NOTE_B4, NOTE_REST, NOTE_G4, NOTE_REST, NOTE_B4, NOTE_REST,
-    NOTE_D4, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_FS4, NOTE_REST, NOTE_A4, NOTE_REST,
-    NOTE_E4, NOTE_REST, NOTE_G4, NOTE_REST, NOTE_B4, NOTE_REST, NOTE_G4, NOTE_REST,
-    NOTE_D4, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_B4, NOTE_REST, NOTE_G4, NOTE_REST
-};
-
-static const uint16_t panic_bass[] = {
-    BASS_E3, BASS_E3, BASS_B3, NOTE_REST, BASS_E3, BASS_E3, BASS_B3, NOTE_REST,
-    BASS_D3, BASS_D3, BASS_A3, NOTE_REST, BASS_D3, BASS_D3, BASS_A3, NOTE_REST,
-    BASS_E3, BASS_E3, BASS_B3, NOTE_REST, BASS_C3, BASS_C3, BASS_G3, NOTE_REST,
-    BASS_D3, BASS_D3, BASS_A3, NOTE_REST, BASS_E3, NOTE_REST, NOTE_REST, NOTE_REST
-};
-
-static const uint8_t panic_drums[] = {
-    DRUM_BOOM, DRUM_HAT, DRUM_KICK, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_KICK, DRUM_HAT,
-    DRUM_KICK, DRUM_HAT, DRUM_KICK, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_KICK, DRUM_HAT,
-    DRUM_BOOM, DRUM_HAT, DRUM_KICK, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_BOOM, DRUM_HAT,
-    DRUM_KICK, DRUM_HAT, DRUM_TICK, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_BOOM, DRUM_HAT
-};
-
-static const uint16_t clear_lead[] = {
-    NOTE_C5, NOTE_E5, NOTE_G5, NOTE_C6, NOTE_REST, NOTE_G5, NOTE_A5, NOTE_C6,
-    NOTE_B5, NOTE_A5, NOTE_G5, NOTE_REST, NOTE_C6, NOTE_REST, NOTE_REST, NOTE_REST
-};
-
-static const uint16_t clear_harmony[] = {
-    NOTE_C4, NOTE_E4, NOTE_G4, NOTE_C5, NOTE_REST, NOTE_E4, NOTE_F4, NOTE_A4,
-    NOTE_G4, NOTE_F4, NOTE_E4, NOTE_REST, NOTE_C5, NOTE_REST, NOTE_REST, NOTE_REST
-};
-
-static const uint16_t clear_bass[] = {
-    BASS_C3, NOTE_REST, BASS_G3, NOTE_REST, BASS_C3, NOTE_REST, BASS_F3, NOTE_REST,
-    BASS_G3, NOTE_REST, BASS_C3, NOTE_REST, BASS_C3, NOTE_REST, NOTE_REST, NOTE_REST
-};
-
-static const uint8_t clear_drums[] = {
-    DRUM_KICK, DRUM_HAT, DRUM_HAT, DRUM_SNARE, DRUM_NONE, DRUM_HAT, DRUM_KICK, DRUM_HAT,
-    DRUM_SNARE, DRUM_HAT, DRUM_HAT, DRUM_NONE, DRUM_KICK, DRUM_NONE, DRUM_NONE, DRUM_NONE
-};
-
-static const uint16_t dead_lead[] = {
-    NOTE_G4, NOTE_E4, NOTE_C4, NOTE_REST, NOTE_D4, NOTE_C4, NOTE_REST, NOTE_REST,
-    NOTE_C4, NOTE_REST, NOTE_REST, NOTE_REST
-};
-
-static const uint16_t dead_harmony[] = {
-    NOTE_E4, NOTE_C4, NOTE_REST, NOTE_REST, NOTE_C4, NOTE_REST, NOTE_REST, NOTE_REST,
-    NOTE_REST, NOTE_REST, NOTE_REST, NOTE_REST
-};
-
-static const uint16_t dead_bass[] = {
-    BASS_G3, NOTE_REST, BASS_C3, NOTE_REST, BASS_D3, NOTE_REST, BASS_C3, NOTE_REST,
-    NOTE_REST, NOTE_REST, NOTE_REST, NOTE_REST
-};
-
-static const uint8_t dead_drums[] = {
-    DRUM_SNARE, DRUM_NONE, DRUM_KICK, DRUM_NONE, DRUM_SNARE, DRUM_NONE, DRUM_KICK, DRUM_NONE,
-    DRUM_NONE, DRUM_NONE, DRUM_NONE, DRUM_NONE
-};
+#define MUSIC_TRACK_COUNT TRACK_LEN(music_tracks)
 
 static void music_silence(void) {
     rAUD1ENV = 0;
@@ -511,7 +555,15 @@ static void music_play_square1(uint16_t note, uint8_t volume, uint8_t duty) {
         return;
     }
     rAUD1SWEEP = 0;
-    rAUD1LEN = (uint8_t)(duty | AUDLEN_LENGTH(36));
+    rAUD1LEN = (uint8_t)(duty | AUDLEN_LENGTH(0));
+    rAUD1ENV = (uint8_t)AUDENV_VOL(volume);
+    rAUD1LOW = (uint8_t)note;
+    rAUD1HIGH = (uint8_t)(((note >> 8) & 0x07u) | AUDHIGH_RESTART | AUDHIGH_LENGTH_OFF);
+}
+
+static void music_play_square1_sfx(uint16_t note, uint8_t volume, uint8_t duty) {
+    rAUD1SWEEP = 0;
+    rAUD1LEN = (uint8_t)(duty | AUDLEN_LENGTH(28));
     rAUD1ENV = (uint8_t)(AUDENV_VOL(volume) | AUDENV_DOWN | AUDENV_LENGTH(1));
     rAUD1LOW = (uint8_t)note;
     rAUD1HIGH = (uint8_t)(((note >> 8) & 0x07u) | AUDHIGH_RESTART | AUDHIGH_LENGTH_ON);
@@ -522,20 +574,20 @@ static void music_play_square2(uint16_t note, uint8_t volume, uint8_t duty) {
         rAUD2ENV = 0;
         return;
     }
-    rAUD2LEN = (uint8_t)(duty | AUDLEN_LENGTH(34));
-    rAUD2ENV = (uint8_t)(AUDENV_VOL(volume) | AUDENV_DOWN | AUDENV_LENGTH(1));
+    rAUD2LEN = (uint8_t)(duty | AUDLEN_LENGTH(0));
+    rAUD2ENV = (uint8_t)AUDENV_VOL(volume);
     rAUD2LOW = (uint8_t)note;
-    rAUD2HIGH = (uint8_t)(((note >> 8) & 0x07u) | AUDHIGH_RESTART | AUDHIGH_LENGTH_ON);
+    rAUD2HIGH = (uint8_t)(((note >> 8) & 0x07u) | AUDHIGH_RESTART | AUDHIGH_LENGTH_OFF);
 }
 
-static void music_play_wave(uint16_t note) {
+static void music_play_wave(uint16_t note, uint8_t level) {
     if (note == NOTE_REST) {
         rAUD3LEVEL = 0;
         return;
     }
     rAUD3ENA = 0x80u;
     rAUD3LEN = 180u;
-    rAUD3LEVEL = 0x40u;
+    rAUD3LEVEL = level;
     rAUD3LOW = (uint8_t)note;
     rAUD3HIGH = (uint8_t)(((note >> 8) & 0x07u) | AUDHIGH_RESTART | AUDHIGH_LENGTH_OFF);
 }
@@ -566,32 +618,10 @@ static void music_play_drum(uint8_t drum) {
     rAUD4GO = (uint8_t)(AUDHIGH_RESTART | AUDHIGH_LENGTH_ON);
 }
 
-static uint8_t music_step_delay(void) {
-    if (music_track == MUSIC_TITLE) return 9u;
-    if (music_track == MUSIC_PLAY) return 8u;
-    if (music_track == MUSIC_SWITCH) return 7u;
-    if (music_track == MUSIC_WATER) return 10u;
-    if (music_track == MUSIC_MOTION) return 6u;
-    if (music_track == MUSIC_MIXED) return 7u;
-    if (music_track == MUSIC_PANIC) return 5u;
-    if (music_track == MUSIC_CLEAR) return 7u;
-    if (music_track == MUSIC_DEAD) return 10u;
-    return 8u;
-}
-
-static void music_run_pattern(const uint16_t *lead,
-                              const uint16_t *harmony,
-                              const uint16_t *bass,
-                              const uint8_t *drums,
-                              uint8_t length,
-                              uint8_t loop,
-                              uint8_t lead_volume,
-                              uint8_t harmony_volume,
-                              uint8_t lead_duty,
-                              uint8_t harmony_duty) {
-    uint8_t i;
-    if (music_step >= length) {
-        if (loop) music_step = 0;
+static void music_run_track(const MusicTrackDef *track) {
+    const MusicStep *step;
+    if (music_step >= track->length) {
+        if (track->loop) music_step = 0;
         else {
             music_track = MUSIC_NONE;
             music_silence();
@@ -599,59 +629,51 @@ static void music_run_pattern(const uint16_t *lead,
         }
     }
 
-    i = music_step;
-    music_play_square2(lead[i], lead_volume, lead_duty);
-    if (!music_sfx_timer) music_play_square1(harmony[i], harmony_volume, harmony_duty);
-    music_play_wave(bass[i]);
-    music_play_drum(drums[i]);
+    step = &(track->steps[music_step]);
+    if (step->lead != NOTE_HOLD) {
+        music_play_square2(step->lead, track->lead_volume, track->lead_duty);
+    }
+    if (!music_sfx_timer && (step->harmony != NOTE_HOLD)) {
+        music_play_square1(step->harmony, track->harmony_volume, track->harmony_duty);
+    }
+    if (step->bass != NOTE_HOLD) {
+        music_play_wave(step->bass, track->wave_level);
+    }
+    music_play_drum(step->drum);
     music_step++;
 }
 
 static void music_update(void) {
-    if (music_sfx_timer) music_sfx_timer--;
+    const MusicTrackDef *track;
+    if (music_sfx_timer) {
+        music_sfx_timer--;
+        if (!music_sfx_timer) music_sfx_priority = 0;
+    }
     if (music_paused || (music_track == MUSIC_NONE)) return;
+    if (music_track >= MUSIC_TRACK_COUNT) {
+        music_track = MUSIC_NONE;
+        music_silence();
+        return;
+    }
+    track = &(music_tracks[music_track]);
+    if (!track->steps || !track->length) return;
     if (music_frame) {
         music_frame--;
         return;
     }
 
-    music_frame = (uint8_t)(music_step_delay() - 1u);
-    if (music_track == MUSIC_TITLE) {
-        music_run_pattern(title_lead, title_harmony, title_bass, title_drums, (uint8_t)(sizeof(title_lead) / sizeof(title_lead[0])), 1u,
-                          8u, 4u, AUDLEN_DUTY_50, AUDLEN_DUTY_25);
-    } else if (music_track == MUSIC_PLAY) {
-        music_run_pattern(play_lead, play_harmony, play_bass, play_drums, (uint8_t)(sizeof(play_lead) / sizeof(play_lead[0])), 1u,
-                          9u, 4u, AUDLEN_DUTY_50, AUDLEN_DUTY_25);
-    } else if (music_track == MUSIC_SWITCH) {
-        music_run_pattern(switch_lead, switch_harmony, switch_bass, switch_drums, (uint8_t)(sizeof(switch_lead) / sizeof(switch_lead[0])), 1u,
-                          8u, 5u, AUDLEN_DUTY_12_5, AUDLEN_DUTY_25);
-    } else if (music_track == MUSIC_WATER) {
-        music_run_pattern(water_lead, water_harmony, water_bass, water_drums, (uint8_t)(sizeof(water_lead) / sizeof(water_lead[0])), 1u,
-                          7u, 3u, AUDLEN_DUTY_75, AUDLEN_DUTY_50);
-    } else if (music_track == MUSIC_MOTION) {
-        music_run_pattern(motion_lead, motion_harmony, motion_bass, motion_drums, (uint8_t)(sizeof(motion_lead) / sizeof(motion_lead[0])), 1u,
-                          10u, 5u, AUDLEN_DUTY_25, AUDLEN_DUTY_12_5);
-    } else if (music_track == MUSIC_MIXED) {
-        music_run_pattern(mixed_lead, mixed_harmony, mixed_bass, mixed_drums, (uint8_t)(sizeof(mixed_lead) / sizeof(mixed_lead[0])), 1u,
-                          10u, 5u, AUDLEN_DUTY_50, AUDLEN_DUTY_75);
-    } else if (music_track == MUSIC_PANIC) {
-        music_run_pattern(panic_lead, panic_harmony, panic_bass, panic_drums, (uint8_t)(sizeof(panic_lead) / sizeof(panic_lead[0])), 1u,
-                          12u, 6u, AUDLEN_DUTY_12_5, AUDLEN_DUTY_25);
-    } else if (music_track == MUSIC_CLEAR) {
-        music_run_pattern(clear_lead, clear_harmony, clear_bass, clear_drums, (uint8_t)(sizeof(clear_lead) / sizeof(clear_lead[0])), 0u,
-                          10u, 5u, AUDLEN_DUTY_50, AUDLEN_DUTY_25);
-    } else if (music_track == MUSIC_DEAD) {
-        music_run_pattern(dead_lead, dead_harmony, dead_bass, dead_drums, (uint8_t)(sizeof(dead_lead) / sizeof(dead_lead[0])), 0u,
-                          8u, 3u, AUDLEN_DUTY_75, AUDLEN_DUTY_25);
-    }
+    music_frame = (uint8_t)(track->step_delay - 1u);
+    music_run_track(track);
 }
 
 static void music_start(uint8_t track) {
+    if (track >= MUSIC_TRACK_COUNT) track = MUSIC_NONE;
     music_track = track;
     music_step = 0;
     music_frame = 0;
     music_paused = 0;
     music_sfx_timer = 0;
+    music_sfx_priority = 0;
     music_silence();
 }
 
@@ -660,29 +682,36 @@ static void music_pause(uint8_t paused) {
     if (paused) music_silence();
 }
 
+static uint8_t music_sfx_begin(uint8_t priority, uint8_t timer) {
+    if (music_sfx_timer && (priority < music_sfx_priority)) return 0u;
+    music_sfx_priority = priority;
+    music_sfx_timer = timer;
+    return 1u;
+}
+
 static void music_sfx_event(uint8_t event) {
     if (music_track == MUSIC_DEAD) return;
     if (event == EVENT_COIN) {
-        music_sfx_timer = 7u;
-        music_play_square1(NOTE_C6, 10u, AUDLEN_DUTY_25);
+        if (!music_sfx_begin(1u, 7u)) return;
+        music_play_square1_sfx(NOTE_C6, 10u, AUDLEN_DUTY_25);
     } else if (event == EVENT_KEY) {
-        music_sfx_timer = 10u;
-        music_play_square1(NOTE_G5, 12u, AUDLEN_DUTY_50);
+        if (!music_sfx_begin(3u, 10u)) return;
+        music_play_square1_sfx(NOTE_G5, 12u, AUDLEN_DUTY_50);
         music_play_drum(DRUM_HAT);
     } else if (event == EVENT_BUBBLE) {
-        music_sfx_timer = 9u;
-        music_play_square1(NOTE_A5, 9u, AUDLEN_DUTY_75);
+        if (!music_sfx_begin(1u, 9u)) return;
+        music_play_square1_sfx(NOTE_A5, 9u, AUDLEN_DUTY_75);
     } else if (event == EVENT_SHIELD) {
-        music_sfx_timer = 12u;
-        music_play_square1(NOTE_C5, 11u, AUDLEN_DUTY_12_5);
+        if (!music_sfx_begin(3u, 12u)) return;
+        music_play_square1_sfx(NOTE_C5, 11u, AUDLEN_DUTY_12_5);
         music_play_drum(DRUM_SNARE);
     } else if (event == EVENT_STOMP) {
         music_play_drum(DRUM_SNARE);
     } else if (event == EVENT_CRACK) {
         music_play_drum(DRUM_KICK);
     } else if (event == EVENT_SWITCH) {
-        music_sfx_timer = 8u;
-        music_play_square1(NOTE_D5, 8u, AUDLEN_DUTY_25);
+        if (!music_sfx_begin(2u, 8u)) return;
+        music_play_square1_sfx(NOTE_D5, 8u, AUDLEN_DUTY_25);
     }
 }
 
@@ -1796,7 +1825,7 @@ static void update_clear(uint8_t pressed) {
         return;
     }
     if (pressed & (J_A | J_START)) {
-        if (game_mode == MODE_ADVENTURE) {
+        if (game_mode != MODE_PANIC) {
             if ((current_level + 1u) < NUM_ADVENTURE_LEVELS) {
                 current_level++;
                 selected_level = current_level;
@@ -1831,7 +1860,7 @@ static void show_pause(void) {
 
 static void init_video(void) {
     DISPLAY_OFF;
-    set_bkg_data(0, (uint8_t)(sizeof(bg_tiles) / 16u), bg_tiles);
+    set_bkg_data(0, (uint8_t)(bg_tiles_byte_count / BG_TILE_BYTES), bg_tiles);
     set_bkg_data(FONT_BASE, FONT_COUNT, font_tiles);
     set_bkg_data(TITLE_FONT_BASE, (uint8_t)(sizeof(title_font_tiles) / 16u), title_font_tiles);
     set_sprite_data(SPRITE_BASE, (uint8_t)(sizeof(sprite_tiles) / 16u), sprite_tiles);

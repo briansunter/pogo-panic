@@ -84,7 +84,7 @@ button:focus-visible {
 .device-bar {
   min-height: 34px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto auto;
   align-items: center;
   gap: 8px;
 }
@@ -125,6 +125,7 @@ button:focus-visible {
   font-size: 0.68rem;
 }
 
+.sound-button,
 .tool-button {
   min-width: 68px;
   min-height: 32px;
@@ -137,6 +138,15 @@ button:focus-visible {
     inset 0 -3px 0 rgba(0, 0, 0, 0.26),
     0 4px 9px rgba(0, 0, 0, 0.18);
   font-size: 0.68rem;
+}
+
+.sound-button {
+  min-width: 58px;
+}
+
+.sound-button.muted {
+  color: #30343d;
+  background: #c7c0b1;
 }
 
 .screen-bezel {

@@ -22,6 +22,9 @@
 
 #define TILEF_SOLID 0x01u
 #define TILEF_DANGER 0x02u
+#define TILEF_MECHANIC 0x04u
+#define TILEF_PLATFORM 0x08u
+#define TILEF_POCKET_SOLID 0x10u
 
 #define PLAYER_ACCEL 2
 #define PLAYER_FRICTION 2
@@ -186,6 +189,9 @@ uint8_t hud_feedback_expired_this_tick(void); /* 1 only on the tick that timer r
 uint8_t tile_has_flag(uint8_t t, uint8_t flag);
 uint8_t is_solid_tile(uint8_t t);
 uint8_t is_danger_tile(uint8_t t);
+uint8_t tile_is_mechanic(uint8_t t);
+uint8_t tile_is_platform(uint8_t t);
+uint8_t tile_is_pocket_solid(uint8_t t);
 uint8_t bg_for_tile(uint8_t t);
 uint8_t stage_tile(uint8_t x, uint8_t y);
 uint8_t tile_at_fixed(int16_t fx, int16_t fy);

@@ -1,9 +1,18 @@
 import roomsJson from "./levels.json" with { type: "json" };
+import tileTableJson from "./tile-table.json" with { type: "json" };
+import tileArtJson from "./tile-art.json" with { type: "json" };
 
 export const LEVEL_COUNT = roomsJson.length;
 export const SCREEN_TILES_W = 20;
 export const SCREEN_TILES_H = 18;
 export const TILE_PX = 8;
+
+/* Decoded 2bpp pixel grids for src-rom/tile-art.c::bg_tiles[]. Indexed by
+ * tile id (TILE.*); each entry is an 8x8 array of GB color indices 0-3
+ * (default BGP order: 0 = lightest). The host tool tools/dump-tiles.c
+ * regenerates tile-art.json from the same bytes the ROM uploads via
+ * set_bkg_data, so the pixel data has exactly one source of truth. */
+const TILE_PIXELS = tileArtJson.tiles.map((entry) => entry.pixels);
 
 export const TILE = Object.freeze({
   EMPTY: 0,
@@ -29,6 +38,38 @@ export const TILE = Object.freeze({
   ARROW_R: 20,
   WALL: 21
 });
+
+const TILE_CATEGORY_FLAG = tileTableJson.flags;
+const TILE_FLAGS_BY_ID = (() => {
+  const flags = new Uint8Array(tileTableJson.count);
+  for (const row of tileTableJson.tiles) flags[row.id] = row.flags;
+  return flags;
+})();
+
+function tileHasFlag(tile, flag) {
+  return tile >= 0 && tile < TILE_FLAGS_BY_ID.length && (TILE_FLAGS_BY_ID[tile] & flag) !== 0;
+}
+
+export function tileIsSolid(tile, switchOn = true) {
+  if (tile === TILE.TOGGLE) return Boolean(switchOn);
+  return tileHasFlag(tile, TILE_CATEGORY_FLAG.solid);
+}
+
+export function tileIsDanger(tile) {
+  return tileHasFlag(tile, TILE_CATEGORY_FLAG.danger);
+}
+
+export function tileIsMechanic(tile) {
+  return tileHasFlag(tile, TILE_CATEGORY_FLAG.mechanic);
+}
+
+export function tileIsPlatform(tile) {
+  return tileHasFlag(tile, TILE_CATEGORY_FLAG.platform);
+}
+
+export function tileIsPocketSolid(tile) {
+  return tileHasFlag(tile, TILE_CATEGORY_FLAG.pocketSolid);
+}
 
 const WORLD_NAMES = ["Groove", "Switch", "Drift", "Motion", "Gauntlet"];
 const PALETTE = {
@@ -85,6 +126,25 @@ function drawPixelPattern(ctx, x, y, rows, color = PALETTE.ink) {
     const row = rows[py];
     for (let px = 0; px < row.length; px += 1) {
       if (row[px] !== " ") ctx.fillRect(x + px, y + py, 1, 1);
+    }
+  }
+}
+
+/* Render an 8x8 tile straight from the JSON-decoded bg_tiles[] grid.
+ * `palette` maps each GB color index 0-3 to a CSS color or null (skip).
+ * Default palette treats color 0 as transparent (background already painted)
+ * and any non-zero color as ink, matching the visual contract the original
+ * ASCII-art `drawPixelPattern` calls had for two-color tiles. */
+function drawArtTile(ctx, tile, x, y, palette = null) {
+  const rows = TILE_PIXELS[tile];
+  if (!rows) return;
+  for (let py = 0; py < rows.length; py += 1) {
+    const row = rows[py];
+    for (let px = 0; px < row.length; px += 1) {
+      const fill = palette ? palette[row[px]] : (row[px] === 0 ? null : PALETTE.ink);
+      if (!fill) continue;
+      ctx.fillStyle = fill;
+      ctx.fillRect(x + px, y + py, 1, 1);
     }
   }
 }
@@ -222,20 +282,19 @@ function drawTile(ctx, tile, x, y, switchOn = true) {
     ctx.fillRect(x + 4, y + 5, 3, 1);
     return;
   }
-  if (tile === TILE.COIN || tile === TILE.KEY || tile === TILE.BUBBLE) {
-    if (tile === TILE.KEY) {
-      drawPixelPattern(ctx, x, y, [
-        " ###    ",
-        "#   #   ",
-        "#   #   ",
-        " ###    ",
-        "  #     ",
-        "  #     ",
-        "  ###   ",
-        "  #     "
-      ]);
-      return;
-    }
+  if (tile === TILE.KEY || tile === TILE.COIN) {
+    /* Pixel data sourced from src-web/tile-art.json (dumped from
+     * src-rom/tile-art.c::bg_tiles[]). Both tiles use only GB colors 0 and 3
+     * so the default drawArtTile palette renders them ink-on-background,
+     * matching the previous hand-typed ASCII patterns byte-for-byte. */
+    drawArtTile(ctx, tile, x, y);
+    return;
+  }
+  if (tile === TILE.BUBBLE) {
+    /* The ROM tile uses three shades; the debug viewer historically used the
+     * coin silhouette. Leaving the procedural draw in place for now keeps
+     * the existing visual; switch to drawArtTile + a multi-shade palette if
+     * we want bubble to mirror the ROM. */
     drawPixelPattern(ctx, x, y, [
       "        ",
       "   ##   ",

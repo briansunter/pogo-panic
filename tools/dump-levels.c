@@ -4,7 +4,12 @@
  *
  * The JSON shape mirrors what `generateAdventureLevels()` returned in JS
  * before this tool replaced it: each room exposes stage[][], enemies as
- * tile coords with vx, spawn in pixels, switchOn boolean, and metadata. */
+ * tile coords with vx, spawn in pixels, switchOn boolean, and metadata.
+ *
+ * If argv[1] is provided, the tile-table category flags are written there
+ * as JSON so JS callers can ask the table the same questions C callers do
+ * (solid/danger/mechanic/platform/pocket_solid) instead of mirroring tile
+ * id lists by hand. */
 #include <stdio.h>
 #include <string.h>
 #include "game-logic.h"
@@ -65,7 +70,34 @@ static void emit_room(uint8_t lvl) {
     printf("  }%s\n", lvl + 1u == NUM_ADVENTURE_LEVELS ? "" : ",");
 }
 
-int main(void) {
+static void emit_tile_table(FILE *out) {
+    uint16_t t;
+    fprintf(out, "{\n");
+    fprintf(out, "  \"count\": %u,\n", (unsigned)TILE_COUNT);
+    fprintf(out, "  \"flags\": {\n");
+    fprintf(out, "    \"solid\": %u,\n", (unsigned)TILEF_SOLID);
+    fprintf(out, "    \"danger\": %u,\n", (unsigned)TILEF_DANGER);
+    fprintf(out, "    \"mechanic\": %u,\n", (unsigned)TILEF_MECHANIC);
+    fprintf(out, "    \"platform\": %u,\n", (unsigned)TILEF_PLATFORM);
+    fprintf(out, "    \"pocketSolid\": %u\n", (unsigned)TILEF_POCKET_SOLID);
+    fprintf(out, "  },\n");
+    fprintf(out, "  \"tiles\": [\n");
+    for (t = 0; t < TILE_COUNT; t++) {
+        fprintf(out, "    { \"id\": %u, \"flags\": %u, \"solid\": %s, \"danger\": %s, \"mechanic\": %s, \"platform\": %s, \"pocketSolid\": %s }%s\n",
+            (unsigned)t,
+            (unsigned)tile_table[t].flags,
+            tile_has_flag((uint8_t)t, TILEF_SOLID) ? "true" : "false",
+            tile_has_flag((uint8_t)t, TILEF_DANGER) ? "true" : "false",
+            tile_is_mechanic((uint8_t)t) ? "true" : "false",
+            tile_is_platform((uint8_t)t) ? "true" : "false",
+            tile_is_pocket_solid((uint8_t)t) ? "true" : "false",
+            (t + 1u == TILE_COUNT) ? "" : ",");
+    }
+    fprintf(out, "  ]\n");
+    fprintf(out, "}\n");
+}
+
+int main(int argc, char **argv) {
     uint8_t lvl;
     /* Mimic the ROM init order: defaults populate save_data so any reads in
      * the generator path don't see uninitialized memory. */
@@ -73,5 +105,15 @@ int main(void) {
     printf("[\n");
     for (lvl = 0; lvl < NUM_ADVENTURE_LEVELS; lvl++) emit_room(lvl);
     printf("]\n");
+
+    if (argc > 1) {
+        FILE *tile_out = fopen(argv[1], "w");
+        if (!tile_out) {
+            fprintf(stderr, "dump-levels: cannot open %s for writing\n", argv[1]);
+            return 1;
+        }
+        emit_tile_table(tile_out);
+        fclose(tile_out);
+    }
     return 0;
 }

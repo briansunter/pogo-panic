@@ -1,0 +1,36 @@
+{
+  "count": 24,
+  "flags": {
+    "solid": 1,
+    "danger": 2,
+    "mechanic": 4,
+    "platform": 8,
+    "pocketSolid": 16
+  },
+  "tiles": [
+    { "id": 0, "flags": 0, "solid": false, "danger": false, "mechanic": false, "platform": false, "pocketSolid": false },
+    { "id": 1, "flags": 25, "solid": true, "danger": false, "mechanic": false, "platform": true, "pocketSolid": true },
+    { "id": 2, "flags": 29, "solid": true, "danger": false, "mechanic": true, "platform": true, "pocketSolid": true },
+    { "id": 3, "flags": 21, "solid": true, "danger": false, "mechanic": true, "platform": false, "pocketSolid": true },
+    { "id": 4, "flags": 2, "solid": false, "danger": true, "mechanic": false, "platform": false, "pocketSolid": false },
+    { "id": 5, "flags": 0, "solid": false, "danger": false, "mechanic": false, "platform": false, "pocketSolid": false },
+    { "id": 6, "flags": 0, "solid": false, "danger": false, "mechanic": false, "platform": false, "pocketSolid": false },
+    { "id": 7, "flags": 0, "solid": false, "danger": false, "mechanic": false, "platform": false, "pocketSolid": false },
+    { "id": 8, "flags": 21, "solid": true, "danger": false, "mechanic": true, "platform": false, "pocketSolid": true },
+    { "id": 9, "flags": 29, "solid": true, "danger": false, "mechanic": true, "platform": true, "pocketSolid": true },
+    { "id": 10, "flags": 4, "solid": false, "danger": false, "mechanic": true, "platform": false, "pocketSolid": false },
+    { "id": 11, "flags": 4, "solid": false, "danger": false, "mechanic": true, "platform": false, "pocketSolid": false },
+    { "id": 12, "flags": 29, "solid": true, "danger": false, "mechanic": true, "platform": true, "pocketSolid": true },
+    { "id": 13, "flags": 29, "solid": true, "danger": false, "mechanic": true, "platform": true, "pocketSolid": true },
+    { "id": 14, "flags": 2, "solid": false, "danger": true, "mechanic": false, "platform": false, "pocketSolid": false },
+    { "id": 15, "flags": 4, "solid": false, "danger": false, "mechanic": true, "platform": false, "pocketSolid": false },
+    { "id": 16, "flags": 29, "solid": true, "danger": false, "mechanic": true, "platform": true, "pocketSolid": true },
+    { "id": 17, "flags": 21, "solid": true, "danger": false, "mechanic": true, "platform": false, "pocketSolid": true },
+    { "id": 18, "flags": 0, "solid": false, "danger": false, "mechanic": false, "platform": false, "pocketSolid": false },
+    { "id": 19, "flags": 0, "solid": false, "danger": false, "mechanic": false, "platform": false, "pocketSolid": false },
+    { "id": 20, "flags": 0, "solid": false, "danger": false, "mechanic": false, "platform": false, "pocketSolid": false },
+    { "id": 21, "flags": 17, "solid": true, "danger": false, "mechanic": false, "platform": false, "pocketSolid": true },
+    { "id": 22, "flags": 0, "solid": false, "danger": false, "mechanic": false, "platform": false, "pocketSolid": false },
+    { "id": 23, "flags": 0, "solid": false, "danger": false, "mechanic": false, "platform": false, "pocketSolid": false }
+  ]
+}

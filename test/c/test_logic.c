@@ -297,30 +297,11 @@ static void test_hud_feedback(void) {
     puts("PASS: test_hud_feedback");
 }
 
-static uint8_t is_mechanic_tile(uint8_t t) {
-    return (uint8_t)(t == T_SPRING || t == T_SWITCH || t == T_TOGGLE ||
-                     t == T_FAN_L || t == T_FAN_R || t == T_CONV_L ||
-                     t == T_CONV_R || t == T_MOVING || t == T_CRACK ||
-                     t == T_BUBBLE || t == T_ROCK);
-}
-
-static uint8_t is_platform_tile(uint8_t t) {
-    return (uint8_t)(t == T_SOLID || t == T_CRACK || t == T_TOGGLE ||
-                     t == T_CONV_L || t == T_CONV_R || t == T_MOVING);
-}
-
-static uint8_t is_pocket_solid_tile(uint8_t t) {
-    return (uint8_t)(t == T_SOLID || t == T_CRACK || t == T_SPRING ||
-                     t == T_SWITCH || t == T_TOGGLE || t == T_CONV_L ||
-                     t == T_CONV_R || t == T_MOVING || t == T_ROCK ||
-                     t == T_WALL);
-}
-
 static uint8_t key_is_in_one_tile_pocket(uint8_t x, uint8_t y) {
     if (x == 0u || x >= (uint8_t)(SCREEN_TILES_W - 1u) || y >= (uint8_t)(SCREEN_TILES_H - 1u)) return 0;
-    return (uint8_t)(is_pocket_solid_tile(stage[y][x - 1u]) &&
-                     is_pocket_solid_tile(stage[y][x + 1u]) &&
-                     is_pocket_solid_tile(stage[y + 1u][x]));
+    return (uint8_t)(tile_is_pocket_solid(stage[y][x - 1u]) &&
+                     tile_is_pocket_solid(stage[y][x + 1u]) &&
+                     tile_is_pocket_solid(stage[y + 1u][x]));
 }
 
 static void test_adventure_levels(void) {
@@ -375,7 +356,7 @@ static void test_adventure_levels(void) {
         found_platform = 0;
         for (y = 0; y < SCREEN_TILES_H && !found_platform; y++) {
             for (x = 0; x < SCREEN_TILES_W; x++) {
-                if (is_platform_tile(stage[y][x])) {
+                if (tile_is_platform(stage[y][x])) {
                     found_platform = 1;
                     break;
                 }
@@ -389,7 +370,7 @@ static void test_adventure_levels(void) {
         mech_count = 0;
         for (y = 0; y < SCREEN_TILES_H; y++) {
             for (x = 0; x < SCREEN_TILES_W; x++) {
-                if (is_mechanic_tile(stage[y][x])) mech_count++;
+                if (tile_is_mechanic(stage[y][x])) mech_count++;
             }
         }
         world_mech_sum[world] += mech_count;

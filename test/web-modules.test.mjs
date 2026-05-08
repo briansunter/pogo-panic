@@ -1,9 +1,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createCanvasScreen, createPocketPogoRunner } from "../src-web/emulator-runner.js";
+import { createAudioPreference, createCanvasScreen, createPocketPogoRunner } from "../src-web/emulator-runner.js";
 import { bindDirectionalPads, bindKeyboardControls, bindVirtualButtons } from "../src-web/input.js";
-import { generateAdventureLevel, generateAdventureLevels, LEVEL_COUNT, TILE, TILE_PX } from "../src-web/level-debug.js";
+import {
+  generateAdventureLevel,
+  generateAdventureLevels,
+  LEVEL_COUNT,
+  TILE,
+  TILE_PX,
+  tileIsDanger,
+  tileIsMechanic,
+  tileIsSolid
+} from "../src-web/level-debug.js";
 import { base64ToBuffer, bufferToBase64, createSaveStore } from "../src-web/save-store.js";
 
 function memoryStorage(initial = {}) {
@@ -365,26 +374,123 @@ test("Pocket Pogo runner owns emulator boot ordering behind one interface", asyn
   assert.deepEqual(calls.at(-1), ["render", "frame"]);
 });
 
-const AUDIT_SOLIDS = new Set([
-  TILE.SOLID,
-  TILE.CRACK,
-  TILE.SPRING,
-  TILE.SWITCH,
-  TILE.CONV_L,
-  TILE.CONV_R,
-  TILE.MOVING,
-  TILE.ROCK,
-  TILE.WALL
-]);
+test("AudioPreference persists muted state", () => {
+  const storage = memoryStorage({ audio: "1" });
+  const preference = createAudioPreference({ storage, key: "audio" });
 
-function auditSolid(tile, switchOn) {
-  if (tile === TILE.TOGGLE) return switchOn;
-  return AUDIT_SOLIDS.has(tile);
-}
+  assert.equal(preference.muted, true);
+  preference.setMuted(false);
+  assert.equal(preference.muted, false);
+  assert.equal(storage.getItem("audio"), "0");
+  preference.setMuted(true);
+  assert.equal(preference.muted, true);
+  assert.equal(storage.getItem("audio"), "1");
+});
 
-function auditDanger(tile) {
-  return tile === TILE.SPIKE || tile === TILE.WATER;
-}
+test("Pocket Pogo runner suppresses muted unlocks and wires the sound toggle", async () => {
+  const calls = [];
+  const listeners = new Map();
+  const attrs = {};
+  const classes = new Set();
+  let inputStart = null;
+  const button = {
+    textContent: "",
+    classList: {
+      toggle(name, enabled) {
+        if (enabled) classes.add(name);
+        else classes.delete(name);
+      }
+    },
+    setAttribute(name, value) {
+      attrs[name] = value;
+    },
+    addEventListener(type, listener) {
+      listeners.set(type, listener);
+    },
+    removeEventListener(type, listener) {
+      if (listeners.get(type) === listener) listeners.delete(type);
+    }
+  };
+  const storage = memoryStorage({ audio: "1" });
+  const instance = {
+    apu: {
+      enableSound() {
+        calls.push(["enableSound"]);
+      },
+      disableSound() {
+        calls.push(["disableSound"]);
+      }
+    },
+    input: {},
+    loadGame(rom) {
+      calls.push(["loadGame", rom.byteLength]);
+    },
+    onFrameFinished() {
+      calls.push(["onFrameFinished"]);
+    },
+    run() {
+      calls.push(["run"]);
+    }
+  };
+  class FakeGameboy {
+    constructor() {
+      return instance;
+    }
+  }
+
+  const runner = createPocketPogoRunner({
+    GameboyCtor: FakeGameboy,
+    romUrl: "/rom.gb",
+    saveStore: {
+      restore(gameboy) { calls.push(["restore", gameboy === instance]); },
+      bind(gameboy) { calls.push(["bindSave", gameboy === instance]); }
+    },
+    screen: { render() {} },
+    controlsRoot: { querySelectorAll: () => [] },
+    status: { set textContent(value) { calls.push(["status", value]); } },
+    soundToggle: button,
+    audioPreference: createAudioPreference({ storage, key: "audio" }),
+    bindControls({ onInputStart }) {
+      inputStart = onInputStart;
+      calls.push(["bindControls"]);
+      onInputStart();
+      return () => {};
+    },
+    fetchRom: async () => ({
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => Uint8Array.from([1, 2, 3]).buffer
+    }),
+    now: () => 123
+  });
+
+  assert.equal(await runner.boot(), instance);
+  assert.equal(button.textContent, "MUTE");
+  assert.equal(attrs["aria-label"], "Enable sound");
+  assert.equal(attrs["aria-pressed"], "false");
+  assert.equal(classes.has("muted"), true);
+  assert.equal(calls.some(([name]) => name === "enableSound"), false);
+
+  listeners.get("click")();
+  assert.equal(storage.getItem("audio"), "0");
+  assert.equal(button.textContent, "SOUND");
+  assert.equal(classes.has("muted"), false);
+  assert.deepEqual(calls.at(-1), ["enableSound"]);
+
+  inputStart();
+  assert.equal(calls.filter(([name]) => name === "enableSound").length, 1);
+
+  listeners.get("click")();
+  assert.equal(storage.getItem("audio"), "1");
+  assert.equal(button.textContent, "MUTE");
+  assert.deepEqual(calls.at(-1), ["disableSound"]);
+
+  inputStart();
+  assert.equal(calls.filter(([name]) => name === "enableSound").length, 1);
+});
+
+const auditSolid = tileIsSolid;
+const auditDanger = tileIsDanger;
 
 function auditOneTilePocket(room, x, y, switchOn) {
   const tile = room.stage[y][x];
@@ -594,19 +700,6 @@ test("non-tutorial adventure rooms use upper routes and world mechanics", () => 
     TILE.ROCK,
     TILE.TOGGLE_OFF
   ]);
-  const mechanicTiles = new Set([
-    TILE.SPRING,
-    TILE.SWITCH,
-    TILE.TOGGLE,
-    TILE.FAN_L,
-    TILE.FAN_R,
-    TILE.CONV_L,
-    TILE.CONV_R,
-    TILE.MOVING,
-    TILE.CRACK,
-    TILE.BUBBLE,
-    TILE.ROCK
-  ]);
   const mechanicTotals = new Map();
 
   for (const room of levels) {
@@ -623,7 +716,7 @@ test("non-tutorial adventure rooms use upper routes and world mechanics", () => 
           minY = Math.min(minY, y);
           maxY = Math.max(maxY, y);
         }
-        if (mechanicTiles.has(tile)) mechanicCount += 1;
+        if (tileIsMechanic(tile)) mechanicCount += 1;
       }
     }
 
@@ -665,15 +758,123 @@ test("advanced adventure rooms add stomp rocks and upper patrol pressure", () =>
   }
 });
 
-test("spring tutorial keeps the spring beside the starter platform", () => {
+function roomPressureScore(room) {
+  let score = room.enemies.length * 3 + (room.moving ? 3 : 0);
+
+  for (const tile of room.stage.flat()) {
+    if (tileIsMechanic(tile)) score += 1;
+    if (tileIsDanger(tile)) score += 1;
+  }
+
+  return score;
+}
+
+function roomTileDistance(a, b) {
+  let distance = 0;
+
+  for (let y = 2; y < a.stage.length; y += 1) {
+    for (let x = 1; x < a.stage[y].length - 1; x += 1) {
+      if (a.stage[y][x] !== b.stage[y][x]) distance += 1;
+    }
+  }
+
+  return distance;
+}
+
+test("adventure room pressure ramps inside each world", () => {
+  const levels = generateAdventureLevels();
+
+  for (let world = 0; world < 5; world += 1) {
+    const rooms = levels.filter((room) => room.world === world);
+    const early = rooms.slice(0, 4).reduce((sum, room) => sum + roomPressureScore(room), 0) / 4;
+    const late = rooms.slice(12, 16).reduce((sum, room) => sum + roomPressureScore(room), 0) / 4;
+
+    assert.ok(late >= early + 5, `world ${world + 1} should end with meaningfully more pressure`);
+  }
+});
+
+test("advancing adventure rooms do not recycle four-room templates", () => {
+  const levels = generateAdventureLevels();
+
+  for (let world = 0; world < 5; world += 1) {
+    const rooms = levels.filter((room) => room.world === world);
+
+    for (let local = 0; local < 12; local += 1) {
+      assert.ok(
+        roomTileDistance(rooms[local], rooms[local + 4]) >= 8,
+        `world ${world + 1} levels ${local + 1} and ${local + 5} should have meaningfully different layouts`
+      );
+    }
+  }
+});
+
+test("opening adventure rooms use distinct silhouettes", () => {
+  const levels = generateAdventureLevels();
+  const groups = [
+    levels.slice(0, 8),
+    levels.slice(16, 20),
+    levels.slice(32, 36),
+    levels.slice(48, 52),
+    levels.slice(64, 68)
+  ];
+
+  for (const rooms of groups) {
+    for (let a = 0; a < rooms.length; a += 1) {
+      for (let b = a + 1; b < rooms.length; b += 1) {
+        assert.ok(
+          roomTileDistance(rooms[a], rooms[b]) >= 20,
+          `levels ${rooms[a].level + 1} and ${rooms[b].level + 1} should not share the same early-room silhouette`
+        );
+      }
+    }
+  }
+});
+
+test("switch world rooms require turning routes on", () => {
+  const levels = generateAdventureLevels().filter((room) => room.world === 1);
+
+  for (const room of levels) {
+    assert.equal(room.switchOn, false, `level ${room.level + 1} should start with toggle routes off`);
+    assert.equal(room.stage[14][4], TILE.SWITCH, `level ${room.level + 1} should put the first switch on the starter lane`);
+    assert.ok(room.stage.flat().includes(TILE.TOGGLE), `level ${room.level + 1} should route across toggle platforms`);
+  }
+});
+
+test("mixed world combines switch routes with other mechanics", () => {
+  const levels = generateAdventureLevels().filter((room) => room.world === 4);
+
+  for (const room of levels) {
+    const flat = room.stage.flat();
+    assert.equal(room.switchOn, false, `level ${room.level + 1} should begin with mixed-world toggle routes off`);
+    assert.equal(room.stage[14][4], TILE.SWITCH, `level ${room.level + 1} should expose a starter switch`);
+    assert.ok(flat.includes(TILE.TOGGLE), `level ${room.level + 1} should use toggles as part of the route`);
+    assert.ok(
+      flat.includes(TILE.ROCK) ||
+        flat.includes(TILE.BUBBLE) ||
+        flat.includes(TILE.CONV_L) ||
+        flat.includes(TILE.CONV_R) ||
+        flat.includes(TILE.FAN_L) ||
+        flat.includes(TILE.FAN_R),
+      `level ${room.level + 1} should pair switching with another mechanic`
+    );
+  }
+});
+
+test("spring tutorial uses a lower catch ledge", () => {
   const room = generateAdventureLevel(4);
   assert.equal(room.stage[14][6], TILE.SPRING);
   assert.equal(room.stage[15][5], TILE.EMPTY);
+  assert.equal(room.stage[7][10], TILE.SOLID);
+  assert.equal(room.stage[11][8], TILE.SOLID);
+  assert.equal(room.stage[11][12], TILE.SOLID);
+  assert.equal(room.stage[10][11], TILE.KEY);
 });
 
-test("crack tutorial keeps the key route open instead of caged", () => {
+test("crack tutorial uses a low-bounce gate instead of a repeated climb", () => {
   const room = generateAdventureLevel(1);
-  assert.equal(room.stage[11][9], TILE.KEY);
+  assert.equal(room.stage[13][9], TILE.KEY);
+  assert.equal(room.stage[14][9], TILE.SOLID);
+  assert.equal(room.stage[10][9], TILE.CRACK);
   assert.equal(room.stage[13][5], TILE.EMPTY);
-  assert.equal(room.stage[13][13], TILE.EMPTY);
+  assert.equal(room.stage[13][11], TILE.EMPTY);
 });

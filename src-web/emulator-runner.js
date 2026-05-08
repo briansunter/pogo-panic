@@ -27,6 +27,21 @@ export function createCanvasScreen(canvas) {
   };
 }
 
+export function createAudioPreference({ storage, key }) {
+  let muted = storage.getItem(key) === "1";
+
+  return {
+    get muted() {
+      return muted;
+    },
+
+    setMuted(value) {
+      muted = Boolean(value);
+      storage.setItem(key, muted ? "1" : "0");
+    }
+  };
+}
+
 export function createPocketPogoRunner({
   GameboyCtor,
   romUrl,
@@ -34,23 +49,63 @@ export function createPocketPogoRunner({
   screen,
   controlsRoot,
   status,
+  soundToggle = null,
+  audioPreference = null,
   bindControls,
   fetchRom = globalThis.fetch,
   now = Date.now
 }) {
   let gameboy = null;
   let unbindControls = null;
+  let unbindSoundToggle = null;
   let soundEnabled = false;
+  let muted = Boolean(audioPreference?.muted);
 
   function setStatus(message) {
     status.textContent = message;
   }
 
+  function isMuted() {
+    return audioPreference ? Boolean(audioPreference.muted) : muted;
+  }
+
+  function renderSoundToggle() {
+    const isAudioMuted = isMuted();
+    if (!soundToggle) return;
+    soundToggle.textContent = isAudioMuted ? "MUTE" : "SOUND";
+    soundToggle.setAttribute("aria-label", isAudioMuted ? "Enable sound" : "Mute sound");
+    soundToggle.setAttribute("aria-pressed", isAudioMuted ? "false" : "true");
+    soundToggle.classList.toggle("muted", isAudioMuted);
+  }
+
+  function disableSound() {
+    if (typeof gameboy?.apu?.disableSound === "function") gameboy.apu.disableSound();
+    soundEnabled = false;
+  }
+
   function enableSound() {
+    if (isMuted()) return;
     if (soundEnabled) return;
     if (typeof gameboy?.apu?.enableSound !== "function") return;
     gameboy.apu.enableSound();
     soundEnabled = true;
+  }
+
+  function setMuted(value) {
+    muted = Boolean(value);
+    if (audioPreference) audioPreference.setMuted(muted);
+    renderSoundToggle();
+    if (muted) disableSound();
+    else enableSound();
+  }
+
+  function bindSoundToggle() {
+    const toggle = () => setMuted(!isMuted());
+    if (!soundToggle) return;
+    if (unbindSoundToggle) unbindSoundToggle();
+    renderSoundToggle();
+    soundToggle.addEventListener("click", toggle);
+    unbindSoundToggle = () => soundToggle.removeEventListener("click", toggle);
   }
 
   async function loadRom() {
@@ -66,9 +121,11 @@ export function createPocketPogoRunner({
 
     async boot() {
       setStatus("Loading ROM...");
+      bindSoundToggle();
       const rom = await loadRom();
 
       gameboy = new GameboyCtor();
+      soundEnabled = false;
       gameboy.loadGame(rom);
       saveStore.restore(gameboy);
 
