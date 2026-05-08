@@ -7,8 +7,9 @@
     "setup:gbdk": "bash scripts/setup-gbdk.sh",
     "build:rom": "make",
     "build:web": "vite build",
+    "build": "npm run build:rom && npm run build:web",
     "dev": "vite --host 127.0.0.1",
-    "test": "node --test test/*.mjs"
+    "test": "npm run build:rom && node --test test/*.mjs"
   },
   "dependencies": {
     "gameboy-emulator": "1.1.2",

@@ -2,35 +2,43 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <link rel="icon" href="data:," />
     <title>Pocket Pogo Panic</title>
   </head>
   <body>
-    <main class="shell">
-      <section class="gameboy" aria-label="Pocket Pogo Panic emulator">
-        <div class="screen-wrap">
+    <main class="shell" aria-label="Pocket Pogo Panic emulator">
+      <section class="gameboy">
+        <header class="device-bar">
+          <div class="brand">Pocket Pogo Panic</div>
+          <div class="status" id="status">Loading ROM...</div>
+          <button class="reset-button" id="reload" type="button" aria-label="Reload ROM">RESET</button>
+        </header>
+
+        <div class="screen-bezel">
           <canvas id="screen" width="160" height="144" aria-label="Game Boy screen"></canvas>
         </div>
-        <div class="status" id="status">Loading ROM...</div>
-        <div class="controls" aria-label="Virtual controls">
-          <button data-key="left" aria-label="Left">Left</button>
-          <button data-key="right" aria-label="Right">Right</button>
-          <button data-key="b" aria-label="B">B</button>
-          <button data-key="a" aria-label="A">A</button>
-          <button data-key="start" aria-label="Start">Start</button>
+
+        <div class="controls-deck">
+          <div class="dpad" data-dpad aria-label="Directional pad">
+            <button class="dpad-button dpad-up" data-key="up" type="button" aria-label="Up"></button>
+            <button class="dpad-button dpad-left" data-key="left" type="button" aria-label="Left"></button>
+            <div class="dpad-center" aria-hidden="true"></div>
+            <button class="dpad-button dpad-right" data-key="right" type="button" aria-label="Right"></button>
+            <button class="dpad-button dpad-down" data-key="down" type="button" aria-label="Down"></button>
+          </div>
+
+          <div class="action-pad" aria-label="Action buttons">
+            <button class="face-button button-b" data-key="b" type="button" aria-label="B">B</button>
+            <button class="face-button button-a" data-key="a" type="button" aria-label="A">A</button>
+          </div>
+
+          <div class="system-controls" aria-label="System buttons">
+            <button class="system-button" data-key="select" type="button" aria-label="Select">SELECT</button>
+            <button class="system-button" data-key="start" type="button" aria-label="Start">START</button>
+          </div>
         </div>
       </section>
-      <aside class="panel">
-        <h1>Pocket Pogo Panic</h1>
-        <p>You cannot stop bouncing. You can only bounce better.</p>
-        <dl>
-          <div><dt>Left / Right</dt><dd>Steer</dd></div>
-          <div><dt>A</dt><dd>Stomp</dd></div>
-          <div><dt>B</dt><dd>Tilt / short hop</dd></div>
-          <div><dt>Enter</dt><dd>Start / pause</dd></div>
-        </dl>
-        <button id="reload">Reload ROM</button>
-      </aside>
     </main>
     <script type="module" src="/src-web/main.js"></script>
   </body>

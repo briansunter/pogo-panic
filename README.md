@@ -12,6 +12,8 @@ npm run build:rom
 
 The ROM is written to `dist/pocket-pogo-panic.gb` and copied to `public/roms/pocket-pogo-panic.gb` for the browser runner.
 
+The production browser build is written to `site-dist/`, separate from the ROM artifact directory.
+
 ## Play In Browser
 
 ```sh
@@ -31,5 +33,5 @@ Controls:
 
 ```sh
 npm test
-npm run build:web
+npm run build
 ```
