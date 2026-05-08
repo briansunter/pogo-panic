@@ -9,6 +9,8 @@ export default defineConfig({
     outDir: "site-dist"
   },
   server: {
+    host: true,
+    allowedHosts: [".ts.net"],
     headers: {
       "Cross-Origin-Opener-Policy": "same-origin",
       "Cross-Origin-Embedder-Policy": "require-corp"

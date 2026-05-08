@@ -70,6 +70,15 @@ static void emit_room(uint8_t lvl) {
     printf("  }%s\n", lvl + 1u == NUM_ADVENTURE_LEVELS ? "" : ",");
 }
 
+/* Tile id -> short name. Stringified from the same TILE_LIST macro that
+ * declares enum TileType, so the JSON's name strings are guaranteed to
+ * agree with the enum. The JS side reads these to build its TILE map. */
+static const char *const tile_names[TILE_COUNT] = {
+#define TILE_NAME(name) #name,
+    TILE_LIST(TILE_NAME)
+#undef TILE_NAME
+};
+
 static void emit_tile_table(FILE *out) {
     uint16_t t;
     fprintf(out, "{\n");
@@ -83,8 +92,9 @@ static void emit_tile_table(FILE *out) {
     fprintf(out, "  },\n");
     fprintf(out, "  \"tiles\": [\n");
     for (t = 0; t < TILE_COUNT; t++) {
-        fprintf(out, "    { \"id\": %u, \"flags\": %u, \"solid\": %s, \"danger\": %s, \"mechanic\": %s, \"platform\": %s, \"pocketSolid\": %s }%s\n",
+        fprintf(out, "    { \"id\": %u, \"name\": \"%s\", \"flags\": %u, \"solid\": %s, \"danger\": %s, \"mechanic\": %s, \"platform\": %s, \"pocketSolid\": %s }%s\n",
             (unsigned)t,
+            tile_names[t],
             (unsigned)tile_table[t].flags,
             tile_has_flag((uint8_t)t, TILEF_SOLID) ? "true" : "false",
             tile_has_flag((uint8_t)t, TILEF_DANGER) ? "true" : "false",

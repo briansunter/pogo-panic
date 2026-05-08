@@ -258,7 +258,7 @@ static void test_hud_feedback(void) {
     assert(hud_feedback_kind() == FEEDBACK_SHIELD);
 
     /* Tick down to expiry. */
-    for (i = 0; i < 36; i++) hud_feedback_tick();
+    for (i = 0; i < (int)FEEDBACK_DURATION_SHIELD; i++) hud_feedback_tick();
     assert(!hud_feedback_active());
     assert(hud_feedback_kind() == FEEDBACK_NONE);
 
@@ -276,7 +276,7 @@ static void test_hud_feedback(void) {
     assert(hud_feedback_kind() == FEEDBACK_SHIELD);
 
     /* Events without feedback mapping are no-ops. First, drain the SHIELD timer. */
-    for (i = 0; i < 36; i++) hud_feedback_tick();
+    for (i = 0; i < (int)FEEDBACK_DURATION_SHIELD; i++) hud_feedback_tick();
     assert(!hud_feedback_active());
     hud_feedback_on_event(EVENT_COIN);
     assert(!hud_feedback_active());
@@ -284,8 +284,8 @@ static void test_hud_feedback(void) {
     assert(!hud_feedback_active());
 
     /* Expired flag is true only on the tick where timer reached 0. */
-    hud_feedback_on_event(EVENT_CRACK); /* timer = 18 */
-    for (i = 0; i < 17; i++) {
+    hud_feedback_on_event(EVENT_CRACK); /* timer = FEEDBACK_DURATION_BREAK */
+    for (i = 0; i < (int)FEEDBACK_DURATION_BREAK - 1; i++) {
         hud_feedback_tick();
         assert(!hud_feedback_expired_this_tick());
     }
@@ -295,6 +295,49 @@ static void test_hud_feedback(void) {
     assert(!hud_feedback_expired_this_tick());
 
     puts("PASS: test_hud_feedback");
+}
+
+static void test_player_physics_primitives(void) {
+    /* point_tile_x: fixed-point pixels -> tile column. Each tile is 8 px. */
+    assert(point_tile_x(FIX(0)) == 0);
+    assert(point_tile_x(FIX(7)) == 0);
+    assert(point_tile_x(FIX(8)) == 1);
+    assert(point_tile_x(FIX(16)) == 2);
+    assert(point_tile_x(FIX(-4)) == 0);  /* negative clamps to 0 */
+
+    assert(point_tile_y(FIX(0)) == 0);
+    assert(point_tile_y(FIX(8)) == 1);
+    assert(point_tile_y(FIX(-1)) == 0);
+
+    /* clamp_player_vx clamps both directions. */
+    player_vx = (int16_t)(PLAYER_MAX_VX + 50);
+    clamp_player_vx();
+    assert(player_vx == PLAYER_MAX_VX);
+    player_vx = (int16_t)-(PLAYER_MAX_VX + 50);
+    clamp_player_vx();
+    assert(player_vx == -PLAYER_MAX_VX);
+    player_vx = 5;
+    clamp_player_vx();
+    assert(player_vx == 5);
+
+    /* player_overlaps_exit: tile under the player's AABB center.
+     * Center = (player_x + FIX(PLAYER_W/2), player_y + FIX(PLAYER_H/2)).
+     * Pick player_x=FIX(30), player_y=FIX(40) so center is (FIX(33), FIX(44))
+     * = pixel (33, 44) = tile (4, 5). */
+    player_x = FIX(30);
+    player_y = FIX(40);
+    stage[5][4] = T_EXIT;
+    assert(player_overlaps_exit());
+    stage[5][4] = T_EMPTY;
+    assert(!player_overlaps_exit());
+
+    /* rect_overlap: AABB intersection in fixed-point pixels. */
+    assert(rect_overlap(FIX(0), FIX(0), 8, 8, FIX(4), FIX(4), 8, 8));    /* overlap */
+    assert(!rect_overlap(FIX(0), FIX(0), 8, 8, FIX(8), FIX(0), 8, 8));   /* touch right */
+    assert(!rect_overlap(FIX(0), FIX(0), 8, 8, FIX(0), FIX(20), 8, 8));  /* far below */
+    assert(rect_overlap(FIX(0), FIX(0), 16, 16, FIX(15), FIX(15), 4, 4));
+
+    puts("PASS: test_player_physics_primitives");
 }
 
 static uint8_t key_is_in_one_tile_pocket(uint8_t x, uint8_t y) {
@@ -453,6 +496,9 @@ int main(void) {
     reset_common();
 
     test_hud_feedback();
+    reset_common();
+
+    test_player_physics_primitives();
     reset_common();
 
     test_adventure_levels();

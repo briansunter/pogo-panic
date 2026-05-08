@@ -35,7 +35,7 @@ const TileBehavior tile_table[TILE_COUNT] = {
     /* T_WATER        */ { TILEF_DANGER,                                       0,             0,                   0,        0,                0, 0 },
     /* T_BUBBLE       */ { TILEF_MECHANIC,                                     0,             0,                   0,        EVENT_BUBBLE + 1, 1, 0 },
     /* T_MOVING       */ { TF_SOLID_PLATFORM_MECH,                             BOUNCE_NORMAL, BOUNCE_SHORT,        0,        0,                0, 0 },
-    /* T_ROCK         */ { TILEF_SOLID | TILEF_MECHANIC | TILEF_POCKET_SOLID,  BOUNCE_NORMAL, BOUNCE_SHORT,        0,        0,                0, 1 },
+    /* T_ROCK         */ { TF_SOLID_PLATFORM_MECH,                             BOUNCE_NORMAL, BOUNCE_SHORT,        0,        0,                0, 1 },
     /* T_TOGGLE_OFF   */ { 0,                                                  0,             0,                   0,        0,                0, 0 },
     /* T_ARROW_D      */ { 0,                                                  0,             0,                   0,        0,                0, 0 },
     /* T_ARROW_R      */ { 0,                                                  0,             0,                   0,        0,                0, 0 },
@@ -100,16 +100,16 @@ void hud_feedback_on_event(uint8_t event) {
        is currently active (preserves prior gating). SHIELD always supersedes. */
     if (event == EVENT_SHIELD) {
         feedback_kind = FEEDBACK_SHIELD;
-        feedback_timer = 36;
+        feedback_timer = FEEDBACK_DURATION_SHIELD;
     } else if (event == EVENT_STOMP) {
         if (feedback_timer == 0) {
             feedback_kind = FEEDBACK_STOMP;
-            feedback_timer = 18;
+            feedback_timer = FEEDBACK_DURATION_BREAK;
         }
     } else if (event == EVENT_CRACK) {
         if (feedback_timer == 0) {
             feedback_kind = FEEDBACK_CRACK;
-            feedback_timer = 18;
+            feedback_timer = FEEDBACK_DURATION_BREAK;
         }
     }
     /* All other events: no-op for HUD feedback. */
@@ -262,6 +262,59 @@ uint8_t is_stomp_breakable(uint8_t tile) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Player physics primitives                                          */
+/*                                                                    */
+/* These were inlined statics in main.c. Pulled into game-logic.c so  */
+/* host-side tests can drive them. They touch only player_* globals   */
+/* and the stage[][], so no hardware adapter is required.             */
+/* ------------------------------------------------------------------ */
+
+uint8_t point_tile_x(int16_t fx) {
+    int16_t px;
+    px = fx >> FP_SHIFT;
+    if (px < 0) return 0;
+    return (uint8_t)(px >> 3);
+}
+
+uint8_t point_tile_y(int16_t fy) {
+    int16_t py;
+    py = fy >> FP_SHIFT;
+    if (py < 0) return 0;
+    return (uint8_t)(py >> 3);
+}
+
+uint8_t player_center_tile(void) {
+    return tile_at_fixed((int16_t)(player_x + FIX(PLAYER_W / 2)),
+                         (int16_t)(player_y + FIX(PLAYER_H / 2)));
+}
+
+uint8_t player_overlaps_exit(void) {
+    return (uint8_t)(player_center_tile() == T_EXIT);
+}
+
+void clamp_player_vx(void) {
+    if (player_vx > PLAYER_MAX_VX) player_vx = PLAYER_MAX_VX;
+    if (player_vx < -PLAYER_MAX_VX) player_vx = -PLAYER_MAX_VX;
+}
+
+uint8_t rect_overlap(int16_t ax, int16_t ay, uint8_t aw, uint8_t ah,
+                     int16_t bx, int16_t by, uint8_t bw, uint8_t bh) {
+    int16_t apx;
+    int16_t apy;
+    int16_t bpx;
+    int16_t bpy;
+    apx = ax >> FP_SHIFT;
+    apy = ay >> FP_SHIFT;
+    bpx = bx >> FP_SHIFT;
+    bpy = by >> FP_SHIFT;
+    if ((apx + aw) <= bpx) return 0;
+    if ((bpx + bw) <= apx) return 0;
+    if ((apy + ah) <= bpy) return 0;
+    if ((bpy + bh) <= apy) return 0;
+    return 1;
+}
+
+/* ------------------------------------------------------------------ */
 /* Stage builders                                                     */
 /* ------------------------------------------------------------------ */
 
@@ -352,15 +405,7 @@ void clear_if_danger(uint8_t x, uint8_t y) {
 }
 
 static void clear_if_platform(uint8_t x, uint8_t y) {
-    if (stage[y][x] == T_SOLID ||
-        stage[y][x] == T_CRACK ||
-        stage[y][x] == T_TOGGLE ||
-        stage[y][x] == T_CONV_L ||
-        stage[y][x] == T_CONV_R ||
-        stage[y][x] == T_MOVING ||
-        stage[y][x] == T_ROCK) {
-        stage[y][x] = T_EMPTY;
-    }
+    if (tile_is_platform(stage[y][x])) stage[y][x] = T_EMPTY;
 }
 
 void soften_exit(void) {

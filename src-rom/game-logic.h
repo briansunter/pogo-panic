@@ -46,31 +46,40 @@
 /* Enums and structs                                                  */
 /* ------------------------------------------------------------------ */
 
+/* Canonical tile vocabulary. The enum below, the JSON dump, and the JS
+ * TILE map all derive from this list, so a tile is added or reordered in
+ * exactly one place. The JSON shipped to the web side embeds these names,
+ * so do not re-order existing entries — append new tiles to the end. */
+#define TILE_LIST(X) \
+    X(EMPTY)        \
+    X(SOLID)        \
+    X(CRACK)        \
+    X(SPRING)       \
+    X(SPIKE)        \
+    X(COIN)         \
+    X(KEY)          \
+    X(EXIT)         \
+    X(SWITCH)       \
+    X(TOGGLE)       \
+    X(FAN_L)        \
+    X(FAN_R)        \
+    X(CONV_L)       \
+    X(CONV_R)       \
+    X(WATER)        \
+    X(BUBBLE)       \
+    X(MOVING)       \
+    X(ROCK)         \
+    X(TOGGLE_OFF)   \
+    X(ARROW_D)      \
+    X(ARROW_R)      \
+    X(WALL)         \
+    X(TITLE_SHADOW) \
+    X(TITLE_FILL)
+
 enum TileType {
-    T_EMPTY = 0,
-    T_SOLID,
-    T_CRACK,
-    T_SPRING,
-    T_SPIKE,
-    T_COIN,
-    T_KEY,
-    T_EXIT,
-    T_SWITCH,
-    T_TOGGLE,
-    T_FAN_L,
-    T_FAN_R,
-    T_CONV_L,
-    T_CONV_R,
-    T_WATER,
-    T_BUBBLE,
-    T_MOVING,
-    T_ROCK,
-    T_TOGGLE_OFF,
-    T_ARROW_D,
-    T_ARROW_R,
-    T_WALL,
-    T_TITLE_SHADOW,
-    T_TITLE_FILL,
+#define TILE_ENUM(name) T_##name,
+    TILE_LIST(TILE_ENUM)
+#undef TILE_ENUM
     TILE_COUNT
 };
 
@@ -175,7 +184,14 @@ extern uint8_t stomp_ready;
 extern uint8_t stomp_chain;
 extern uint8_t invuln;
 
-/* HUD feedback module. Owns feedback_kind and feedback_timer privately. */
+/* HUD feedback module. Owns feedback_kind and feedback_timer privately.
+ *
+ * The Module has two non-trivial rules: SHIELD always supersedes; STOMP and
+ * CRACK only register if no feedback is currently active. Durations are
+ * named below so callers and tests don't repeat magic frame counts. */
+#define FEEDBACK_DURATION_SHIELD 36u   /* ~0.6s @ 60fps; longer to read the shield message */
+#define FEEDBACK_DURATION_BREAK  18u   /* ~0.3s @ 60fps; brief flash on STOMP/CRACK */
+
 void hud_feedback_on_event(uint8_t event);  /* maps GameEvent to feedback; no-op for events without UI feedback */
 void hud_feedback_tick(void);                /* call once per frame; decrements timer, clears kind on expiry */
 uint8_t hud_feedback_active(void);           /* 1 if feedback is currently displayed */
@@ -196,6 +212,19 @@ uint8_t bg_for_tile(uint8_t t);
 uint8_t stage_tile(uint8_t x, uint8_t y);
 uint8_t tile_at_fixed(int16_t fx, int16_t fy);
 uint8_t is_stomp_breakable(uint8_t tile);
+
+/* Pure physics primitives. These convert player/world coords to tile lookups
+ * and run AABB checks — no hardware side effects, so the test surface can
+ * exercise them directly. The richer step()-shaped Game Simulation seam
+ * (move physics + bounce dispatch out of main.c) is left for a future pass;
+ * until then main.c's update_player remains the orchestration site. */
+uint8_t point_tile_x(int16_t fx);
+uint8_t point_tile_y(int16_t fy);
+uint8_t player_center_tile(void);
+uint8_t player_overlaps_exit(void);
+void clamp_player_vx(void);
+uint8_t rect_overlap(int16_t ax, int16_t ay, uint8_t aw, uint8_t ah,
+                     int16_t bx, int16_t by, uint8_t bw, uint8_t bh);
 
 void add_platform(uint8_t x, uint8_t y, uint8_t w, uint8_t tile);
 void add_enemy(uint8_t tx, uint8_t ty, int8_t vx);

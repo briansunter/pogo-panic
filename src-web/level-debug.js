@@ -14,30 +14,15 @@ export const TILE_PX = 8;
  * set_bkg_data, so the pixel data has exactly one source of truth. */
 const TILE_PIXELS = tileArtJson.tiles.map((entry) => entry.pixels);
 
-export const TILE = Object.freeze({
-  EMPTY: 0,
-  SOLID: 1,
-  CRACK: 2,
-  SPRING: 3,
-  SPIKE: 4,
-  COIN: 5,
-  KEY: 6,
-  EXIT: 7,
-  SWITCH: 8,
-  TOGGLE: 9,
-  FAN_L: 10,
-  FAN_R: 11,
-  CONV_L: 12,
-  CONV_R: 13,
-  WATER: 14,
-  BUBBLE: 15,
-  MOVING: 16,
-  ROCK: 17,
-  TOGGLE_OFF: 18,
-  ARROW_D: 19,
-  ARROW_R: 20,
-  WALL: 21
-});
+/* TILE map derived from tile-table.json's name field, which is stringified
+ * from enum TileType in src-rom/game-logic.h via the TILE_LIST macro. The
+ * pair is the canonical Tile vocabulary; do not maintain a parallel list. */
+export const TILE = Object.freeze(
+  tileTableJson.tiles.reduce((acc, row) => {
+    acc[row.name] = row.id;
+    return acc;
+  }, {})
+);
 
 const TILE_CATEGORY_FLAG = tileTableJson.flags;
 const TILE_FLAGS_BY_ID = (() => {
@@ -80,30 +65,27 @@ const PALETTE = {
   ink: "#111111"
 };
 
-const TILE_NAMES = new Map([
-  [TILE.EMPTY, "empty"],
-  [TILE.SOLID, "solid"],
-  [TILE.CRACK, "crack"],
-  [TILE.SPRING, "spring"],
-  [TILE.SPIKE, "spike"],
-  [TILE.COIN, "coin"],
-  [TILE.KEY, "key"],
-  [TILE.EXIT, "exit"],
-  [TILE.SWITCH, "switch"],
-  [TILE.TOGGLE, "toggle"],
-  [TILE.FAN_L, "fan-left"],
-  [TILE.FAN_R, "fan-right"],
-  [TILE.CONV_L, "conveyor-left"],
-  [TILE.CONV_R, "conveyor-right"],
-  [TILE.WATER, "water"],
-  [TILE.BUBBLE, "bubble"],
-  [TILE.MOVING, "moving"],
-  [TILE.ROCK, "rock"],
-  [TILE.TOGGLE_OFF, "toggle-off"],
-  [TILE.ARROW_D, "arrow-down"],
-  [TILE.ARROW_R, "arrow-right"],
-  [TILE.WALL, "wall"]
-]);
+/* GB BGP shades 0-3 mapped to the Pocket palette. Index 0 is null so
+ * background pixels stay whatever fillBase painted (saves redundant fills). */
+const TILE_PALETTE = [null, PALETTE.light, PALETTE.mid, PALETTE.ink];
+
+/* Display labels for the room summary. Default rule: lowercase the canonical
+ * name and turn underscores into hyphens (FAN_L -> "fan-l"). Override the few
+ * tiles where a friendlier label exists. */
+const TILE_LABEL_OVERRIDES = {
+  FAN_L: "fan-left",
+  FAN_R: "fan-right",
+  CONV_L: "conveyor-left",
+  CONV_R: "conveyor-right",
+  ARROW_D: "arrow-down",
+  ARROW_R: "arrow-right"
+};
+const TILE_NAMES = new Map(
+  tileTableJson.tiles.map((row) => [
+    row.id,
+    TILE_LABEL_OVERRIDES[row.name] ?? row.name.toLowerCase().replace(/_/g, "-")
+  ])
+);
 
 export function generateAdventureLevel(level) {
   const safeLevel = Math.max(0, Math.min(LEVEL_COUNT - 1, Number(level) || 0));
@@ -120,28 +102,15 @@ function fillBase(ctx, x, y) {
   ctx.fillRect(x, y, TILE_PX, TILE_PX);
 }
 
-function drawPixelPattern(ctx, x, y, rows, color = PALETTE.ink) {
-  ctx.fillStyle = color;
-  for (let py = 0; py < rows.length; py += 1) {
-    const row = rows[py];
-    for (let px = 0; px < row.length; px += 1) {
-      if (row[px] !== " ") ctx.fillRect(x + px, y + py, 1, 1);
-    }
-  }
-}
-
 /* Render an 8x8 tile straight from the JSON-decoded bg_tiles[] grid.
- * `palette` maps each GB color index 0-3 to a CSS color or null (skip).
- * Default palette treats color 0 as transparent (background already painted)
- * and any non-zero color as ink, matching the visual contract the original
- * ASCII-art `drawPixelPattern` calls had for two-color tiles. */
-function drawArtTile(ctx, tile, x, y, palette = null) {
+ * `palette` maps each GB color index 0-3 to a CSS color or null (skip). */
+function drawArtTile(ctx, tile, x, y, palette) {
   const rows = TILE_PIXELS[tile];
   if (!rows) return;
   for (let py = 0; py < rows.length; py += 1) {
     const row = rows[py];
     for (let px = 0; px < row.length; px += 1) {
-      const fill = palette ? palette[row[px]] : (row[px] === 0 ? null : PALETTE.ink);
+      const fill = palette[row[px]];
       if (!fill) continue;
       ctx.fillStyle = fill;
       ctx.fillRect(x + px, y + py, 1, 1);
@@ -149,231 +118,39 @@ function drawArtTile(ctx, tile, x, y, palette = null) {
   }
 }
 
-function drawPlatformTile(ctx, x, y, { off = false, moving = false, conveyor = 0 } = {}) {
-  const body = off ? PALETTE.light : moving ? PALETTE.dark : PALETTE.mid;
-  const shade = off ? PALETTE.mid : PALETTE.ink;
-  ctx.fillStyle = PALETTE.ink;
-  ctx.fillRect(x, y, TILE_PX, TILE_PX);
-  ctx.fillStyle = body;
-  ctx.fillRect(x + 1, y + 1, 6, 4);
-  ctx.fillStyle = PALETTE.light;
-  ctx.fillRect(x + 1, y + 1, 6, 1);
-  ctx.fillStyle = shade;
-  ctx.fillRect(x + 1, y + 5, 6, 2);
-  ctx.fillStyle = body;
-  ctx.fillRect(x + 3, y + 3, 2, 1);
-  if (moving) {
-    ctx.fillStyle = PALETTE.light;
-    ctx.fillRect(x + 2, y + 3, 4, 2);
-  }
-  if (conveyor) {
-    ctx.fillStyle = PALETTE.ink;
-    ctx.beginPath();
-    if (conveyor > 0) {
-      ctx.moveTo(x + 5, y + 2);
-      ctx.lineTo(x + 7, y + 4);
-      ctx.lineTo(x + 5, y + 6);
-    } else {
-      ctx.moveTo(x + 3, y + 2);
-      ctx.lineTo(x + 1, y + 4);
-      ctx.lineTo(x + 3, y + 6);
-    }
-    ctx.fill();
-  }
-}
-
-function drawWallTile(ctx, x, y) {
-  ctx.fillStyle = PALETTE.ink;
-  ctx.fillRect(x, y, TILE_PX, TILE_PX);
-  ctx.fillStyle = PALETTE.dark;
-  ctx.fillRect(x + 1, y + 1, 6, 6);
-  ctx.fillStyle = PALETTE.mid;
-  ctx.fillRect(x + 2, y + 2, 4, 1);
-  ctx.fillRect(x + 2, y + 5, 4, 1);
-  ctx.fillStyle = PALETTE.light;
-  ctx.fillRect(x + 2, y + 2, 1, 1);
-}
-
+/* The Tile renderer Module. Single Interface: tile id (+ switchOn) -> 8x8
+ * pixels. Reads the canonical pixel grid the ROM uploads via set_bkg_data
+ * (decoded into tile-art.json by tools/dump-tiles.c), so the debug viewer
+ * is a true preview of what the ROM renders rather than a hand-mirror. */
 function drawTile(ctx, tile, x, y, switchOn = true) {
   fillBase(ctx, x, y);
-  if (tile === TILE.EMPTY) return;
-
-  if (tile === TILE.WALL) {
-    drawWallTile(ctx, x, y);
-    return;
-  }
-  if (tile === TILE.SOLID) {
-    drawPlatformTile(ctx, x, y);
-    return;
-  }
-  if (tile === TILE.MOVING) {
-    drawPlatformTile(ctx, x, y, { moving: true });
-    return;
-  }
-  if (tile === TILE.TOGGLE || tile === TILE.TOGGLE_OFF) {
-    drawPlatformTile(ctx, x, y, { off: tile === TILE.TOGGLE_OFF || !switchOn });
-    return;
-  }
-  if (tile === TILE.CONV_L || tile === TILE.CONV_R) {
-    drawPlatformTile(ctx, x, y, { conveyor: tile === TILE.CONV_R ? 1 : -1 });
-    return;
-  }
-  if (tile === TILE.CRACK) {
-    drawPlatformTile(ctx, x, y);
-    ctx.fillStyle = PALETTE.ink;
-    ctx.fillRect(x + 2, y + 1, 1, 5);
-    ctx.fillRect(x + 4, y + 1, 1, 5);
-    ctx.fillRect(x + 6, y + 1, 1, 5);
-    ctx.fillRect(x + 3, y + 4, 1, 1);
-    ctx.fillRect(x + 5, y + 3, 1, 1);
-    return;
-  }
-  if (tile === TILE.ROCK) {
-    ctx.fillStyle = PALETTE.ink;
-    ctx.beginPath();
-    ctx.moveTo(x + 3, y + 1);
-    ctx.lineTo(x + 6, y + 2);
-    ctx.lineTo(x + 7, y + 5);
-    ctx.lineTo(x + 5, y + 7);
-    ctx.lineTo(x + 2, y + 7);
-    ctx.lineTo(x + 1, y + 4);
-    ctx.fill();
-    ctx.fillStyle = PALETTE.dark;
-    ctx.fillRect(x + 3, y + 2, 3, 4);
-    ctx.fillStyle = PALETTE.light;
-    ctx.fillRect(x + 3, y + 2, 2, 1);
-    ctx.fillRect(x + 2, y + 4, 1, 1);
-    return;
-  }
-  if (tile === TILE.SPRING) {
-    ctx.fillStyle = PALETTE.ink;
-    ctx.fillRect(x + 2, y + 1, 4, 1);
-    ctx.fillRect(x + 3, y + 2, 2, 1);
-    ctx.fillRect(x + 2, y + 3, 4, 1);
-    ctx.fillRect(x + 1, y + 4, 6, 1);
-    ctx.fillRect(x + 2, y + 5, 4, 1);
-    ctx.fillRect(x + 3, y + 6, 2, 1);
-    ctx.fillRect(x + 2, y + 7, 4, 1);
-    return;
-  }
-  if (tile === TILE.SPIKE) {
-    ctx.fillStyle = PALETTE.ink;
-    ctx.fillRect(x, y + 7, 8, 1);
-    ctx.fillStyle = PALETTE.ink;
-    ctx.beginPath();
-    ctx.moveTo(x + 1, y + 7);
-    ctx.lineTo(x + 3, y + 1);
-    ctx.lineTo(x + 5, y + 7);
-    ctx.moveTo(x + 4, y + 7);
-    ctx.lineTo(x + 6, y + 2);
-    ctx.lineTo(x + 7, y + 7);
-    ctx.fill();
-    ctx.fillStyle = PALETTE.light;
-    ctx.fillRect(x + 3, y + 2, 1, 3);
-    return;
-  }
-  if (tile === TILE.WATER) {
-    ctx.fillStyle = PALETTE.dark;
-    ctx.fillRect(x, y + 1, TILE_PX, 7);
-    ctx.fillStyle = PALETTE.mid;
-    ctx.fillRect(x, y, TILE_PX, 5);
-    ctx.fillStyle = PALETTE.light;
-    ctx.fillRect(x + 1, y + 2, 3, 1);
-    ctx.fillRect(x + 4, y + 5, 3, 1);
-    return;
-  }
-  if (tile === TILE.KEY || tile === TILE.COIN) {
-    /* Pixel data sourced from src-web/tile-art.json (dumped from
-     * src-rom/tile-art.c::bg_tiles[]). Both tiles use only GB colors 0 and 3
-     * so the default drawArtTile palette renders them ink-on-background,
-     * matching the previous hand-typed ASCII patterns byte-for-byte. */
-    drawArtTile(ctx, tile, x, y);
-    return;
-  }
-  if (tile === TILE.BUBBLE) {
-    /* The ROM tile uses three shades; the debug viewer historically used the
-     * coin silhouette. Leaving the procedural draw in place for now keeps
-     * the existing visual; switch to drawArtTile + a multi-shade palette if
-     * we want bubble to mirror the ROM. */
-    drawPixelPattern(ctx, x, y, [
-      "        ",
-      "   ##   ",
-      "  #  #  ",
-      " #    # ",
-      " #    # ",
-      "  #  #  ",
-      "   ##   "
-    ]);
-    return;
-  }
-  if (tile === TILE.EXIT) {
-    ctx.fillStyle = PALETTE.ink;
-    ctx.fillRect(x + 1, y, 6, 8);
-    ctx.fillStyle = PALETTE.dark;
-    ctx.fillRect(x + 2, y + 1, 4, 6);
-    ctx.fillStyle = PALETTE.light;
-    ctx.fillRect(x + 3, y + 1, 2, 1);
-    ctx.fillStyle = PALETTE.white;
-    ctx.fillRect(x + 5, y + 4, 1, 1);
-    return;
-  }
-  if (tile === TILE.SWITCH) {
-    ctx.fillStyle = PALETTE.ink;
-    ctx.fillRect(x + 1, y + 5, 6, 2);
-    ctx.fillStyle = PALETTE.dark;
-    ctx.fillRect(x + 3, y + 1, 2, 4);
-    ctx.fillStyle = PALETTE.white;
-    ctx.fillRect(x + 3, y + 1, 2, 1);
-    return;
-  }
-  if (tile === TILE.FAN_L || tile === TILE.FAN_R) {
-    const right = tile === TILE.FAN_R;
-    ctx.fillStyle = PALETTE.ink;
-    ctx.beginPath();
-    ctx.moveTo(x + (right ? 6 : 2), y + 1);
-    ctx.lineTo(x + (right ? 6 : 2), y + 7);
-    ctx.lineTo(x + (right ? 1 : 7), y + 4);
-    ctx.fill();
-    ctx.fillStyle = PALETTE.light;
-    ctx.fillRect(x + 3, y + 3, 2, 2);
-    return;
-  }
-  if (tile === TILE.ARROW_D || tile === TILE.ARROW_R) {
-    if (tile === TILE.ARROW_D) {
-      drawPixelPattern(ctx, x, y, [
-        "        ",
-        "   ##   ",
-        "   ##   ",
-        "   ##   ",
-        " ###### ",
-        "  ####  ",
-        "   ##   "
-      ]);
-    } else {
-      drawPixelPattern(ctx, x, y, [
-        "        ",
-        "   #    ",
-        "   ##   ",
-        " #######",
-        " #######",
-        "   ##   ",
-        "   #    "
-      ]);
-    }
-  }
+  /* TOGGLE shows its TOGGLE_OFF art when the room's switch is off; this is
+   * the same id swap the ROM does in bg_for_tile(). */
+  const drawn = (tile === TILE.TOGGLE && !switchOn) ? TILE.TOGGLE_OFF : tile;
+  drawArtTile(ctx, drawn, x, y, TILE_PALETTE);
 }
 
+const PLAYER_SPRITE = [
+  "  ###   ",
+  "  ###   ",
+  " #####  ",
+  "  ###   ",
+  "  # #   ",
+  "   #    ",
+  "  ###   ",
+  "   #    "
+];
+
+/* The player is a sprite (OBJ), not a background tile, so it doesn't live
+ * in tile-art.c. The debug viewer keeps a tiny ASCII pattern for it. */
 function drawDebugPlayer(ctx, x, y) {
-  drawPixelPattern(ctx, x, y, [
-    "  ###   ",
-    "  ###   ",
-    " #####  ",
-    "  ###   ",
-    "  # #   ",
-    "   #    ",
-    "  ###   ",
-    "   #    "
-  ]);
+  ctx.fillStyle = PALETTE.ink;
+  for (let py = 0; py < PLAYER_SPRITE.length; py += 1) {
+    const row = PLAYER_SPRITE[py];
+    for (let px = 0; px < row.length; px += 1) {
+      if (row[px] !== " ") ctx.fillRect(x + px, y + py, 1, 1);
+    }
+  }
 }
 
 export function drawLevelCanvas(canvas, room, scale = 1) {

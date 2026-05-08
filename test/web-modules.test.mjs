@@ -8,12 +8,17 @@ import {
   generateAdventureLevels,
   LEVEL_COUNT,
   TILE,
-  TILE_PX,
   tileIsDanger,
-  tileIsMechanic,
-  tileIsSolid
+  tileIsMechanic
 } from "../src-web/level-debug.js";
 import { base64ToBuffer, bufferToBase64, createSaveStore } from "../src-web/save-store.js";
+import {
+  findOneTilePockets,
+  isOneTilePocket,
+  roomIsSolvable
+} from "../src-web/reachability.js";
+import tileTableJson from "../src-web/tile-table.json" with { type: "json" };
+import tileArtJson from "../src-web/tile-art.json" with { type: "json" };
 
 function memoryStorage(initial = {}) {
   const values = new Map(Object.entries(initial));
@@ -489,128 +494,9 @@ test("Pocket Pogo runner suppresses muted unlocks and wires the sound toggle", a
   assert.equal(calls.filter(([name]) => name === "enableSound").length, 1);
 });
 
-const auditSolid = tileIsSolid;
-const auditDanger = tileIsDanger;
-
-function auditOneTilePocket(room, x, y, switchOn) {
-  const tile = room.stage[y][x];
-  if (auditDanger(tile) || auditSolid(tile, switchOn)) return false;
-  if (tile === TILE.EXIT) return false;
-  return auditSolid(room.stage[y + 1][x], switchOn) &&
-    auditSolid(room.stage[y][x - 1], switchOn) &&
-    auditSolid(room.stage[y][x + 1], switchOn);
-}
-
-function auditSurface(room, x, supportY, switchOn) {
-  if (x <= 0 || x >= 19 || supportY <= 2 || supportY > 17) return false;
-  if (!auditSolid(room.stage[supportY][x], switchOn)) return false;
-  const headTile = room.stage[supportY - 1][x];
-  return !auditSolid(headTile, switchOn) && !auditDanger(headTile);
-}
-
-function auditKey(node) {
-  return `${node.x},${node.y},${node.switchOn ? 1 : 0}`;
-}
-
-function auditNode(key) {
-  const [x, y, switchFlag] = key.split(",").map(Number);
-  return { x, y, switchOn: switchFlag === 1 };
-}
-
-function auditLand(room, x, y, switchOn) {
-  const tile = room.stage[y][x];
-  return { x, y, switchOn: tile === TILE.SWITCH ? !switchOn : switchOn };
-}
-
-function auditStartNodes(room) {
-  const spawnX = Math.floor(room.spawn.x / TILE_PX);
-  const spawnFootY = Math.floor((room.spawn.y + TILE_PX) / TILE_PX);
-  const nodes = [];
-
-  for (let dy = 0; dy <= 7; dy += 1) {
-    for (let dx = -2; dx <= 2; dx += 1) {
-      const x = spawnX + dx;
-      const y = spawnFootY + dy;
-      if (auditSurface(room, x, y, room.switchOn)) nodes.push(auditLand(room, x, y, room.switchOn));
-    }
-    if (nodes.length) return nodes;
-  }
-
-  return nodes;
-}
-
-function auditTargetNodes(room, targetTile) {
-  const candidates = [];
-
-  for (let y = 3; y < room.stage.length - 1; y += 1) {
-    for (let x = 1; x < room.stage[y].length - 1; x += 1) {
-      if (room.stage[y][x] !== targetTile) continue;
-
-      for (const switchOn of [false, true]) {
-        for (let sx = x - 1; sx <= x + 1; sx += 1) {
-          for (let sy = y + 1; sy <= Math.min(17, y + 4); sy += 1) {
-            if (auditSurface(room, sx, sy, switchOn)) candidates.push(auditKey(auditLand(room, sx, sy, switchOn)));
-          }
-        }
-      }
-    }
-  }
-
-  return new Set(candidates);
-}
-
-function auditCanMove(room, from, to) {
-  const dx = Math.abs(to.x - from.x);
-  const rise = from.y - to.y;
-  const fall = to.y - from.y;
-  const fromTile = room.stage[from.y][from.x];
-  const spring = fromTile === TILE.SPRING;
-  const maxRise = spring ? 7 : 4;
-  const maxDx = spring ? 8 : 7;
-
-  if (dx === 0 && rise === 0) return false;
-  if (rise > 0 && spring) return rise <= maxRise && dx <= maxDx;
-  if (rise > 0) return rise <= maxRise && dx <= Math.max(3, maxDx - Math.max(0, rise - 2));
-  if (fall >= 0) return dx <= maxDx + 2;
-  return false;
-}
-
-function auditNeighbors(room, node) {
-  const neighbors = [];
-
-  for (let y = 3; y <= 17; y += 1) {
-    for (let x = 1; x < 19; x += 1) {
-      if (!auditSurface(room, x, y, node.switchOn)) continue;
-      if (auditCanMove(room, node, { x, y })) neighbors.push(auditLand(room, x, y, node.switchOn));
-    }
-  }
-
-  return neighbors;
-}
-
-function auditFlood(room, starts) {
-  const queue = [...starts];
-  const seen = new Set(queue.map(auditKey));
-
-  for (let index = 0; index < queue.length; index += 1) {
-    for (const next of auditNeighbors(room, queue[index])) {
-      const key = auditKey(next);
-      if (!seen.has(key)) {
-        seen.add(key);
-        queue.push(next);
-      }
-    }
-  }
-
-  return seen;
-}
-
-function auditIntersects(seen, targets) {
-  for (const key of targets) {
-    if (seen.has(key)) return true;
-  }
-  return false;
-}
+/* Reachability checks live in src-web/reachability.js as a proper Module.
+ * Tests below consume the Module's interface (roomIsSolvable, isOneTilePocket,
+ * findOneTilePockets) rather than re-implementing the flood-fill here. */
 
 test("debug level generator exposes all adventure rooms with goals", () => {
   const levels = generateAdventureLevels();
@@ -640,42 +526,58 @@ test("debug level generator exposes all adventure rooms with goals", () => {
 
 test("adventure rooms keep a completable route and no reachable dead-end pockets", () => {
   for (const room of generateAdventureLevels()) {
-    const starts = auditStartNodes(room);
-    const keyTargets = auditTargetNodes(room, TILE.KEY);
-    const exitTargets = auditTargetNodes(room, TILE.EXIT);
+    const result = roomIsSolvable(room);
+    assert.ok(result.solvable, `level ${room.level + 1} must be solvable: ${result.reason}`);
 
-    assert.ok(starts.length > 0, `level ${room.level + 1} should have a reachable landing below spawn`);
-    assert.ok(keyTargets.size > 0, `level ${room.level + 1} should expose key approach surfaces`);
-    assert.ok(exitTargets.size > 0, `level ${room.level + 1} should expose exit approach surfaces`);
-
-    const fromStart = auditFlood(room, starts);
-    const keyStarts = [...keyTargets].filter((key) => fromStart.has(key)).map(auditNode);
-
-    assert.ok(keyStarts.length > 0, `level ${room.level + 1} key should be route-reachable`);
-    assert.ok(
-      auditIntersects(auditFlood(room, keyStarts), exitTargets),
-      `level ${room.level + 1} exit should be reachable after the key route`
+    const traps = findOneTilePockets(room);
+    assert.equal(
+      traps.length,
+      0,
+      `level ${room.level + 1} should not trap the player in a one-tile pocket: ${
+        traps.map((t) => `(${t.x},${t.y},switch=${t.switchOn})`).join(", ")
+      }`
     );
-
-    for (const key of fromStart) {
-      assert.ok(
-        auditIntersects(auditFlood(room, [auditNode(key)]), exitTargets),
-        `level ${room.level + 1} should let reachable surface ${key} escape to the exit`
-      );
-    }
-
-    for (const switchOn of [false, true]) {
-      for (let y = 3; y < 17; y += 1) {
-        for (let x = 1; x < 19; x += 1) {
-          assert.equal(
-            auditOneTilePocket(room, x, y, switchOn),
-            false,
-            `level ${room.level + 1} should not trap the player in a one-tile pocket at ${x},${y}`
-          );
-        }
-      }
-    }
   }
+});
+
+test("reachability module rejects an obviously unsolvable room", () => {
+  /* Synthetic room: walls everywhere, key floating in mid-air, exit pinned
+   * on a different floor with no bouncing path between them. */
+  const room = {
+    level: 0,
+    world: 0,
+    local: 0,
+    spawn: { x: 8, y: 16 },
+    switchOn: true,
+    moving: null,
+    enemies: [],
+    stage: Array.from({ length: 18 }, (_, y) =>
+      Array.from({ length: 20 }, (_, x) => {
+        if (y === 2 || y === 17) return TILE.WALL;
+        if (x === 0 || x === 19) return TILE.WALL;
+        if (y === 16 && x === 18) return TILE.EXIT;
+        if (y === 5 && x === 10) return TILE.KEY;
+        return TILE.EMPTY;
+      })
+    )
+  };
+  const result = roomIsSolvable(room);
+  assert.equal(result.solvable, false, "isolated key/exit must be flagged unsolvable");
+  assert.ok(result.reason && result.reason.length > 0, "unsolvable result must include a reason");
+});
+
+test("isOneTilePocket detects the trap shape it is named for", () => {
+  const room = generateAdventureLevel(0);
+  /* Construct a known pocket: empty cell sealed on three sides. */
+  const stage = room.stage.map((row) => row.slice());
+  stage[10][10] = TILE.EMPTY;
+  stage[11][10] = TILE.SOLID;
+  stage[10][9] = TILE.SOLID;
+  stage[10][11] = TILE.SOLID;
+  assert.ok(isOneTilePocket({ ...room, stage }, 10, 10, true));
+  /* Remove a wall: no longer a pocket. */
+  stage[10][9] = TILE.EMPTY;
+  assert.equal(isOneTilePocket({ ...room, stage }, 10, 10, true), false);
 });
 
 test("non-tutorial adventure rooms use upper routes and world mechanics", () => {
@@ -877,4 +779,37 @@ test("crack tutorial uses a low-bounce gate instead of a repeated climb", () => 
   assert.equal(room.stage[10][9], TILE.CRACK);
   assert.equal(room.stage[13][5], TILE.EMPTY);
   assert.equal(room.stage[13][11], TILE.EMPTY);
+});
+
+test("tile vocabulary stays canonical across enum, table, and art", () => {
+  /* The Tile vocabulary lives in src-rom/game-logic.h's TILE_LIST macro;
+   * tile-table.json (from dump-levels) and tile-art.json (from dump-tiles)
+   * are derived from it. This test guards the invariant that all three
+   * agree, so callers can trust TILE id <-> name <-> pixel grid. */
+  assert.equal(tileTableJson.tiles.length, tileTableJson.count, "tile-table count must match tiles[]");
+  assert.equal(tileArtJson.count, tileTableJson.count, "tile-art and tile-table must declare the same tile count");
+  assert.equal(tileArtJson.tiles.length, tileTableJson.count, "every tile id must have a pixel grid");
+
+  for (const row of tileTableJson.tiles) {
+    assert.equal(typeof row.name, "string", `tile id ${row.id} must have a name`);
+    assert.match(row.name, /^[A-Z][A-Z0-9_]*$/, `tile name ${row.name} must be SHOUTING_SNAKE_CASE`);
+    assert.equal(TILE[row.name], row.id, `TILE.${row.name} must equal id ${row.id}`);
+  }
+
+  for (const tile of tileArtJson.tiles) {
+    assert.equal(tile.pixels.length, 8, `tile ${tile.index} must have 8 rows`);
+    for (const row of tile.pixels) {
+      assert.equal(row.length, 8, `tile ${tile.index} row must have 8 cols`);
+      for (const v of row) assert.ok(v >= 0 && v <= 3, `tile ${tile.index} pixel must be GB color 0-3`);
+    }
+  }
+});
+
+test("ROCK is treated as a platform by both flag and behavior", () => {
+  /* Pre-deepening, clear_if_platform hardcoded ROCK while tile_is_platform
+   * (TILEF_PLATFORM) didn't include it. This locks in the unification. */
+  const rock = tileTableJson.tiles.find((t) => t.name === "ROCK");
+  assert.ok(rock.platform, "ROCK must carry the platform flag");
+  assert.ok(rock.solid, "ROCK must remain solid");
+  assert.ok(rock.mechanic, "ROCK must remain a mechanic tile");
 });

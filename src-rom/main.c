@@ -1004,19 +1004,7 @@ static void present_frame(void) {
     if (hud_feedback_expired_this_tick()) hud_dirty = 1;
 }
 
-static uint8_t point_tile_x(int16_t fx) {
-    int16_t px;
-    px = fx >> FP_SHIFT;
-    if (px < 0) return 0;
-    return (uint8_t)(px >> 3);
-}
-
-static uint8_t point_tile_y(int16_t fy) {
-    int16_t py;
-    py = fy >> FP_SHIFT;
-    if (py < 0) return 0;
-    return (uint8_t)(py >> 3);
-}
+/* point_tile_x, point_tile_y moved to game-logic.c (pure physics primitives). */
 
 static void trigger_switch(void) {
     if (switch_cooldown) return;
@@ -1069,18 +1057,8 @@ static void complete_level(void) {
     draw_text(7, 13, "A NEXT");
 }
 
-static uint8_t player_center_tile(void) {
-    return tile_at_fixed((int16_t)(player_x + FIX(PLAYER_W / 2)), (int16_t)(player_y + FIX(PLAYER_H / 2)));
-}
-
-static uint8_t player_overlaps_exit(void) {
-    return (uint8_t)(player_center_tile() == T_EXIT);
-}
-
-static void clamp_player_vx(void) {
-    if (player_vx > PLAYER_MAX_VX) player_vx = PLAYER_MAX_VX;
-    if (player_vx < -PLAYER_MAX_VX) player_vx = -PLAYER_MAX_VX;
-}
+/* player_center_tile, player_overlaps_exit, clamp_player_vx moved to
+ * game-logic.c (pure physics primitives). */
 
 static void collect_tiles(void) {
     uint8_t tx1;
@@ -1227,21 +1205,7 @@ static void resolve_vertical(uint8_t joy) {
     }
 }
 
-static uint8_t rect_overlap(int16_t ax, int16_t ay, uint8_t aw, uint8_t ah, int16_t bx, int16_t by, uint8_t bw, uint8_t bh) {
-    int16_t apx;
-    int16_t apy;
-    int16_t bpx;
-    int16_t bpy;
-    apx = ax >> FP_SHIFT;
-    apy = ay >> FP_SHIFT;
-    bpx = bx >> FP_SHIFT;
-    bpy = by >> FP_SHIFT;
-    if ((apx + aw) <= bpx) return 0;
-    if ((bpx + bw) <= apx) return 0;
-    if ((apy + ah) <= bpy) return 0;
-    if ((bpy + bh) <= apy) return 0;
-    return 1;
-}
+/* rect_overlap moved to game-logic.c (pure AABB helper). */
 
 static void update_enemies(void) {
     uint8_t i;
