@@ -1,4 +1,6 @@
-export const ROM_URL = "/roms/pocket-pogo-panic.gb";
+const baseUrl = import.meta.env?.BASE_URL ?? "/";
+
+export const ROM_URL = `${baseUrl}roms/pocket-pogo-panic.gb`;
 export const SAVE_KEY = "pocket-pogo-panic.sram.v1";
 
 export const CONTROL_BINDINGS = {
