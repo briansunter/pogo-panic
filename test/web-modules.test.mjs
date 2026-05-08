@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createPocketPogoRunner } from "../src-web/emulator-runner.js";
+import { createCanvasScreen, createPocketPogoRunner } from "../src-web/emulator-runner.js";
 import { bindDirectionalPads, bindKeyboardControls, bindVirtualButtons } from "../src-web/input.js";
+import { generateAdventureLevel, generateAdventureLevels, LEVEL_COUNT, TILE } from "../src-web/level-debug.js";
 import { base64ToBuffer, bufferToBase64, createSaveStore } from "../src-web/save-store.js";
 
 function memoryStorage(initial = {}) {
@@ -246,9 +247,51 @@ test("bindKeyboardControls maps keyboard state to emulator input and can detach"
   assert.equal(events.size, 0);
 });
 
+test("CanvasScreen remaps frames to a crisp Game Boy Pocket palette", () => {
+  const calls = [];
+  const canvas = {
+    width: 2,
+    height: 2,
+    getContext() {
+      return {
+        imageSmoothingEnabled: true,
+        createImageData(width, height) {
+          return { width, height, data: new Uint8ClampedArray(width * height * 4) };
+        },
+        putImageData(imageData, x, y) {
+          calls.push({ imageData, x, y, smoothing: this.imageSmoothingEnabled });
+        }
+      };
+    }
+  };
+  const screen = createCanvasScreen(canvas);
+  screen.render({
+    data: Uint8ClampedArray.from([
+      255, 255, 255, 255,
+      170, 170, 170, 255,
+      90, 90, 90, 255,
+      0, 0, 0, 255
+    ])
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].smoothing, false);
+  assert.deepEqual([...calls[0].imageData.data], [
+    248, 248, 240, 255,
+    184, 184, 176, 255,
+    104, 104, 96, 255,
+    24, 24, 22, 255
+  ]);
+});
+
 test("Pocket Pogo runner owns emulator boot ordering behind one interface", async () => {
   const calls = [];
   const instance = {
+    apu: {
+      enableSound() {
+        calls.push(["enableSound"]);
+      }
+    },
     input: {},
     loadGame(rom) {
       calls.push(["loadGame", rom.byteLength]);
@@ -281,8 +324,10 @@ test("Pocket Pogo runner owns emulator boot ordering behind one interface", asyn
     screen: { render(imageData) { calls.push(["render", imageData]); } },
     controlsRoot: { querySelectorAll: () => [] },
     status: { set textContent(value) { statuses.push(value); } },
-    bindControls({ input }) {
-      calls.push(["bindControls", input === instance.input]);
+    bindControls({ input, onInputStart }) {
+      calls.push(["bindControls", input === instance.input, typeof onInputStart]);
+      onInputStart();
+      onInputStart();
       return () => {};
     },
     fetchRom: async (url) => ({
@@ -301,9 +346,42 @@ test("Pocket Pogo runner owns emulator boot ordering behind one interface", asyn
     ["restore", true],
     ["onFrameFinished"],
     ["bindSave", true],
-    ["bindControls", true],
+    ["bindControls", true, "function"],
+    ["enableSound"],
     ["run"]
   ]);
   instance.frameCallback("frame");
   assert.deepEqual(calls.at(-1), ["render", "frame"]);
+});
+
+test("debug level generator exposes all adventure rooms with goals", () => {
+  const levels = generateAdventureLevels();
+  assert.equal(levels.length, LEVEL_COUNT);
+
+  for (const room of levels) {
+    const flat = room.stage.flat();
+    assert.ok(flat.includes(TILE.BATTERY), `level ${room.level + 1} should include a battery`);
+    assert.ok(flat.includes(TILE.EXIT), `level ${room.level + 1} should include an exit`);
+    assert.equal(room.stage[2][0], TILE.WALL, `level ${room.level + 1} should render boundary walls separately`);
+    assert.ok(
+      flat.includes(TILE.SOLID) ||
+        flat.includes(TILE.CRACK) ||
+        flat.includes(TILE.TOGGLE) ||
+        flat.includes(TILE.CONV_L) ||
+        flat.includes(TILE.CONV_R) ||
+        flat.includes(TILE.MOVING),
+      `level ${room.level + 1} should include jumpable platforms`
+    );
+    assert.equal(room.stage[16][18], TILE.EXIT, `level ${room.level + 1} should keep the exit visible`);
+    assert.notEqual(room.stage[16][15], TILE.SPIKE, `level ${room.level + 1} should keep spikes off the exit pocket`);
+    assert.notEqual(room.stage[16][15], TILE.WATER, `level ${room.level + 1} should keep water off the exit pocket`);
+    assert.notEqual(room.stage[16][17], TILE.SPIKE, `level ${room.level + 1} should keep spikes off the exit approach`);
+    assert.notEqual(room.stage[16][17], TILE.WATER, `level ${room.level + 1} should keep water off the exit approach`);
+  }
+});
+
+test("spring tutorial keeps the spring beside the starter platform", () => {
+  const room = generateAdventureLevel(4);
+  assert.equal(room.stage[14][6], TILE.SPRING);
+  assert.equal(room.stage[15][5], TILE.EMPTY);
 });

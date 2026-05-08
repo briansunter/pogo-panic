@@ -26,7 +26,7 @@ function safelyReleasePointer(element, event) {
   }
 }
 
-export function bindVirtualButtons({ root = document, input, bindings = CONTROL_BINDINGS }) {
+export function bindVirtualButtons({ root = document, input, bindings = CONTROL_BINDINGS, onInputStart = () => {} }) {
   const unbind = [];
 
   root.querySelectorAll("[data-key]").forEach((button) => {
@@ -39,6 +39,7 @@ export function bindVirtualButtons({ root = document, input, bindings = CONTROL_
       event.preventDefault();
       safelyCapturePointer(button, event);
       setInputState(input, bindings, control, true);
+      onInputStart();
       button.classList.add("active");
     };
     const release = (event) => {
@@ -66,7 +67,7 @@ export function bindVirtualButtons({ root = document, input, bindings = CONTROL_
   };
 }
 
-export function bindDirectionalPads({ root = document, input, bindings = CONTROL_BINDINGS }) {
+export function bindDirectionalPads({ root = document, input, bindings = CONTROL_BINDINGS, onInputStart = () => {} }) {
   const unbind = [];
   const directions = ["up", "down", "left", "right"];
 
@@ -102,6 +103,7 @@ export function bindDirectionalPads({ root = document, input, bindings = CONTROL
       event.preventDefault();
       safelyCapturePointer(pad, event);
       setActiveControl(control);
+      onInputStart();
     };
     const release = (event) => {
       event.preventDefault();
@@ -134,7 +136,8 @@ export function bindKeyboardControls({
   root = document,
   input,
   bindings = CONTROL_BINDINGS,
-  keyboardBindings = KEYBOARD_BINDINGS
+  keyboardBindings = KEYBOARD_BINDINGS,
+  onInputStart = () => {}
 }) {
   const activeCodes = new Set();
 
@@ -145,6 +148,7 @@ export function bindKeyboardControls({
     event.preventDefault();
     activeCodes.add(keyId);
     setInputState(input, bindings, control, true);
+    onInputStart();
   };
 
   const release = (event) => {

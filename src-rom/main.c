@@ -1,4 +1,5 @@
 #include <gb/gb.h>
+#include <gb/hardware.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -8,10 +9,10 @@
 #define SCREEN_TILES_H 18
 #define FP_SHIFT 4
 #define TILE_PX 8
-#define PLAYER_W 7
-#define PLAYER_H 13
+#define PLAYER_W 6
+#define PLAYER_H 8
 #define MAX_ENEMIES 5
-#define FONT_BASE 21
+#define FONT_BASE 22
 #define SPRITE_BASE 96
 #define FONT_COUNT 42
 #define HUD_Y 1
@@ -21,6 +22,7 @@
 
 #define FIX(v) ((int16_t)((v) << FP_SHIFT))
 #define TILE8(a,b,c,d,e,f,g,h) a,a,b,b,c,c,d,d,e,e,f,f,g,g,h,h
+#define TILE2(a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p) a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p
 #define TILEF_SOLID 0x01u
 #define TILEF_DANGER 0x02u
 #define PLAYER_ACCEL 2
@@ -31,6 +33,71 @@
 #define BOUNCE_SHORT FIX(-4)
 #define BOUNCE_SPRING ((int16_t)-120)
 #define BOUNCE_SPRING_SHORT FIX(-6)
+
+#define NOTE_REST 0u
+#define NOTE_C3 1046u
+#define NOTE_CS3 1102u
+#define NOTE_D3 1155u
+#define NOTE_DS3 1205u
+#define NOTE_E3 1253u
+#define NOTE_F3 1297u
+#define NOTE_FS3 1339u
+#define NOTE_G3 1379u
+#define NOTE_GS3 1417u
+#define NOTE_A3 1452u
+#define NOTE_AS3 1486u
+#define NOTE_B3 1517u
+#define NOTE_C4 1547u
+#define NOTE_CS4 1575u
+#define NOTE_D4 1602u
+#define NOTE_DS4 1627u
+#define NOTE_E4 1650u
+#define NOTE_F4 1673u
+#define NOTE_FS4 1694u
+#define NOTE_G4 1714u
+#define NOTE_GS4 1732u
+#define NOTE_A4 1750u
+#define NOTE_AS4 1767u
+#define NOTE_B4 1783u
+#define NOTE_C5 1798u
+#define NOTE_CS5 1812u
+#define NOTE_D5 1825u
+#define NOTE_DS5 1837u
+#define NOTE_E5 1849u
+#define NOTE_F5 1860u
+#define NOTE_FS5 1871u
+#define NOTE_G5 1881u
+#define NOTE_GS5 1890u
+#define NOTE_A5 1899u
+#define NOTE_AS5 1907u
+#define NOTE_B5 1915u
+#define NOTE_C6 1923u
+
+#define BASS_C3 NOTE_C3
+#define BASS_D3 NOTE_D3
+#define BASS_E3 NOTE_E3
+#define BASS_F3 NOTE_F3
+#define BASS_G3 NOTE_G3
+#define BASS_A3 NOTE_A3
+#define BASS_B3 NOTE_B3
+
+#define DRUM_NONE 0u
+#define DRUM_KICK 1u
+#define DRUM_SNARE 2u
+#define DRUM_HAT 3u
+#define DRUM_TICK 4u
+#define DRUM_BOOM 5u
+
+#define MUSIC_NONE 0u
+#define MUSIC_TITLE 1u
+#define MUSIC_PLAY 2u
+#define MUSIC_SWITCH 3u
+#define MUSIC_WATER 4u
+#define MUSIC_MOTION 5u
+#define MUSIC_MIXED 6u
+#define MUSIC_PANIC 7u
+#define MUSIC_CLEAR 8u
+#define MUSIC_DEAD 9u
 
 enum TileType {
     T_EMPTY = 0,
@@ -54,6 +121,7 @@ enum TileType {
     T_TOGGLE_OFF,
     T_ARROW_D,
     T_ARROW_R,
+    T_WALL,
     TILE_COUNT
 };
 
@@ -108,35 +176,36 @@ typedef struct SaveData {
 } SaveData;
 
 static const uint8_t bg_tiles[] = {
-    TILE8(0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00), /* empty */
-    TILE8(0xff,0xc3,0xbd,0xa5,0xa5,0xbd,0xc3,0xff), /* solid */
-    TILE8(0xff,0xdb,0xbd,0xe7,0xdb,0xbd,0xe7,0xff), /* crack */
-    TILE8(0x00,0x7e,0x42,0x7e,0x24,0x7e,0x18,0xff), /* spring */
-    TILE8(0x00,0x18,0x18,0x3c,0x3c,0x7e,0x7e,0xff), /* spikes */
-    TILE8(0x00,0x18,0x3c,0x66,0x5a,0x66,0x3c,0x18), /* coin */
-    TILE8(0x3c,0x42,0xbd,0xa5,0xa5,0xbd,0x42,0x3c), /* battery */
-    TILE8(0x7e,0x42,0x5a,0x5a,0x5e,0x5a,0x42,0x7e), /* exit */
-    TILE8(0x00,0x3c,0x42,0xbd,0xa5,0xbd,0x42,0x3c), /* switch */
-    TILE8(0xff,0x81,0xbd,0x99,0x99,0xbd,0x81,0xff), /* toggle */
-    TILE8(0x10,0x30,0x7e,0xff,0xff,0x7e,0x30,0x10), /* fan left */
-    TILE8(0x08,0x0c,0x7e,0xff,0xff,0x7e,0x0c,0x08), /* fan right */
-    TILE8(0x88,0x44,0x22,0x11,0x88,0x44,0x22,0x11), /* conveyor left */
-    TILE8(0x11,0x22,0x44,0x88,0x11,0x22,0x44,0x88), /* conveyor right */
-    TILE8(0x00,0x42,0xa5,0x5a,0x24,0x5a,0xa5,0x42), /* water */
-    TILE8(0x00,0x3c,0x42,0xa5,0xa5,0x42,0x3c,0x00), /* bubble */
-    TILE8(0x7e,0xff,0xdb,0xff,0xff,0xdb,0xff,0x7e), /* moving */
-    TILE8(0x18,0x3c,0x7e,0xdb,0xff,0xdb,0x7e,0x3c), /* rock */
-    TILE8(0x81,0x00,0x24,0x00,0x00,0x24,0x00,0x81), /* toggle off */
-    TILE8(0x18,0x3c,0x7e,0xdb,0x18,0x18,0x18,0x18), /* arrow down */
-    TILE8(0x10,0x18,0x1c,0xfe,0xfe,0x1c,0x18,0x10)  /* arrow right */
+    TILE2(0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00), /* empty */
+    TILE2(0xff,0x00,0x81,0x7e,0x81,0x66,0x81,0x7e,0x81,0x7e,0xff,0x00,0xff,0xff,0xff,0xff), /* solid */
+    TILE2(0xff,0x00,0x81,0x7e,0x99,0x5a,0x8d,0x6e,0x99,0x5a,0x81,0x7e,0xff,0xff,0xff,0xff), /* crack */
+    TILE2(0x00,0x00,0x3c,0x3c,0x18,0x18,0x3c,0x3c,0x66,0x66,0x3c,0x3c,0x18,0x18,0x3c,0x3c), /* spring */
+    TILE2(0x00,0x00,0x10,0x10,0x10,0x10,0x38,0x38,0x38,0x38,0x7c,0x7c,0x7c,0xfe,0xff,0xff), /* spikes */
+    TILE2(0x00,0x00,0x18,0x18,0x24,0x24,0x42,0x42,0x42,0x42,0x24,0x24,0x18,0x18,0x00,0x00), /* coin */
+    TILE2(0x3c,0x3c,0x66,0x66,0x5a,0x5a,0x5a,0x5a,0x5a,0x5a,0x66,0x66,0x3c,0x3c,0x00,0x00), /* battery */
+    TILE2(0x7e,0xff,0x7e,0xc3,0x66,0xdb,0x66,0xdb,0x66,0xdb,0x66,0xdb,0x7e,0xc3,0x7e,0xff), /* exit */
+    TILE2(0x00,0x00,0x3c,0x00,0x42,0x3c,0x5a,0x3c,0x5a,0x3c,0x24,0x18,0x7e,0x00,0x00,0x00), /* switch */
+    TILE2(0xff,0xff,0xff,0x81,0xc3,0xbd,0xdb,0xa5,0xdb,0xa5,0xc3,0xbd,0xff,0x81,0xff,0xff), /* toggle */
+    TILE2(0x10,0x00,0x30,0x10,0x7e,0x3c,0x7e,0xfe,0x7e,0xfe,0x7e,0x3c,0x30,0x10,0x10,0x00), /* fan left */
+    TILE2(0x08,0x00,0x0c,0x08,0x7e,0x3c,0x7e,0x7f,0x7e,0x7f,0x7e,0x3c,0x0c,0x08,0x08,0x00), /* fan right */
+    TILE2(0xff,0x00,0x81,0x7e,0xa5,0x66,0x89,0x4e,0xa5,0x66,0x81,0x7e,0x7e,0xff,0xff,0xff), /* conveyor left */
+    TILE2(0xff,0x00,0x81,0x7e,0xa5,0x66,0x91,0x72,0xa5,0x66,0x81,0x7e,0x7e,0xff,0xff,0xff), /* conveyor right */
+    TILE2(0x00,0x00,0x66,0x00,0x99,0x66,0x66,0x99,0x99,0x66,0x66,0x99,0x99,0x66,0x66,0x00), /* water */
+    TILE2(0x00,0x00,0x3c,0x00,0x42,0x3c,0x99,0x66,0x99,0x66,0x42,0x3c,0x3c,0x00,0x00,0x00), /* bubble */
+    TILE2(0xff,0x00,0x81,0x7e,0xbd,0x7e,0xa5,0x7e,0xa5,0x7e,0xbd,0x7e,0x81,0x7e,0xff,0x00), /* moving */
+    TILE2(0x18,0x00,0x24,0x18,0x5a,0x3c,0xbd,0x7e,0x7e,0xff,0xbd,0x7e,0x5a,0x3c,0x24,0x18), /* rock */
+    TILE2(0x81,0x81,0x00,0x00,0x3c,0x00,0x24,0x00,0x24,0x00,0x3c,0x00,0x00,0x00,0x81,0x81), /* toggle off */
+    TILE2(0x18,0x18,0x18,0x18,0x18,0x18,0x7e,0x7e,0x3c,0x3c,0x18,0x18,0x00,0x00,0x00,0x00), /* arrow down */
+    TILE2(0x10,0x10,0x18,0x18,0x1c,0x1c,0xfe,0xfe,0xfe,0xfe,0x1c,0x1c,0x18,0x18,0x10,0x10), /* arrow right */
+    TILE2(0xff,0xff,0x81,0xff,0xbd,0xc3,0x81,0xff,0x81,0xff,0xbd,0xc3,0x81,0xff,0xff,0xff)  /* wall */
 };
 
 static const uint8_t sprite_tiles[] = {
-    TILE8(0x3c,0x7e,0xdb,0xff,0xe7,0xbd,0x7e,0x24), /* body */
-    TILE8(0x24,0x24,0x3c,0x18,0x18,0x7e,0x18,0x66), /* pogo */
-    TILE8(0x00,0x00,0x3c,0x7e,0xdb,0xff,0xff,0x66), /* slime */
-    TILE8(0x18,0x3c,0x7e,0xdb,0xff,0xdb,0x7e,0x3c), /* rock */
-    TILE8(0x00,0x3c,0x42,0xa5,0x99,0xa5,0x42,0x3c)  /* bubble ring */
+    TILE2(0x38,0x38,0x38,0x38,0x7c,0x7c,0x38,0x38,0x28,0x28,0x10,0x10,0x38,0x38,0x10,0x10), /* player */
+    TILE2(0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00), /* unused */
+    TILE2(0x00,0x00,0x00,0x00,0x3c,0x3c,0x7e,0x7e,0xff,0xff,0xff,0xff,0x7e,0x7e,0x42,0x42), /* slime */
+    TILE2(0x18,0x00,0x24,0x18,0x5a,0x3c,0xbd,0x7e,0x7e,0xff,0xbd,0x7e,0x5a,0x3c,0x24,0x18), /* rock */
+    TILE2(0x00,0x00,0x3c,0x3c,0x66,0x66,0xc3,0xc3,0xc3,0xc3,0x66,0x66,0x3c,0x3c,0x00,0x00)  /* bubble ring */
 };
 
 static const uint8_t tile_flags[] = {
@@ -160,7 +229,8 @@ static const uint8_t tile_flags[] = {
     TILEF_SOLID,    /* rock */
     0,              /* toggle off */
     0,              /* arrow down */
-    0               /* arrow right */
+    0,              /* arrow right */
+    TILEF_SOLID     /* wall */
 };
 
 static const uint8_t font_tiles[] = {
@@ -248,6 +318,475 @@ static int16_t player_vx = 0;
 static int16_t player_vy = 0;
 static uint8_t stomping = 0;
 static uint8_t invuln = 0;
+
+static uint8_t music_track = MUSIC_NONE;
+static uint8_t music_step = 0;
+static uint8_t music_frame = 0;
+static uint8_t music_paused = 0;
+static uint8_t music_sfx_timer = 0;
+
+static const uint8_t bass_wave[] = {
+    0x89, 0xab, 0xcd, 0xef, 0xfe, 0xdc, 0xba, 0x98,
+    0x76, 0x54, 0x32, 0x10, 0x01, 0x23, 0x45, 0x67
+};
+
+static const uint16_t title_lead[] = {
+    NOTE_C5, NOTE_E5, NOTE_G5, NOTE_C6, NOTE_REST, NOTE_G5, NOTE_E5, NOTE_G5,
+    NOTE_A5, NOTE_G5, NOTE_E5, NOTE_C5, NOTE_D5, NOTE_E5, NOTE_G5, NOTE_REST,
+    NOTE_F5, NOTE_A5, NOTE_C6, NOTE_A5, NOTE_G5, NOTE_E5, NOTE_D5, NOTE_REST,
+    NOTE_C5, NOTE_D5, NOTE_E5, NOTE_G5, NOTE_C6, NOTE_B5, NOTE_G5, NOTE_REST
+};
+
+static const uint16_t title_harmony[] = {
+    NOTE_C4, NOTE_REST, NOTE_E4, NOTE_REST, NOTE_G4, NOTE_REST, NOTE_E4, NOTE_REST,
+    NOTE_F4, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_G4, NOTE_REST, NOTE_B4, NOTE_REST,
+    NOTE_F4, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_E4, NOTE_REST, NOTE_G4, NOTE_REST,
+    NOTE_C4, NOTE_REST, NOTE_G4, NOTE_REST, NOTE_E4, NOTE_G4, NOTE_C5, NOTE_REST
+};
+
+static const uint16_t title_bass[] = {
+    BASS_C3, NOTE_REST, NOTE_REST, BASS_G3, BASS_C3, NOTE_REST, BASS_G3, NOTE_REST,
+    BASS_F3, NOTE_REST, NOTE_REST, BASS_C3, BASS_G3, NOTE_REST, BASS_D3, NOTE_REST,
+    BASS_F3, NOTE_REST, NOTE_REST, BASS_C3, BASS_E3, NOTE_REST, BASS_G3, NOTE_REST,
+    BASS_C3, NOTE_REST, BASS_G3, NOTE_REST, BASS_C3, NOTE_REST, NOTE_REST, NOTE_REST
+};
+
+static const uint8_t title_drums[] = {
+    DRUM_KICK, DRUM_HAT, DRUM_HAT, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_HAT, DRUM_HAT,
+    DRUM_KICK, DRUM_HAT, DRUM_HAT, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_HAT, DRUM_HAT,
+    DRUM_KICK, DRUM_HAT, DRUM_HAT, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_HAT, DRUM_HAT,
+    DRUM_KICK, DRUM_HAT, DRUM_KICK, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_HAT, DRUM_HAT
+};
+
+static const uint16_t play_lead[] = {
+    NOTE_C5, NOTE_E5, NOTE_G5, NOTE_A5, NOTE_G5, NOTE_E5, NOTE_D5, NOTE_G5,
+    NOTE_E5, NOTE_G5, NOTE_C6, NOTE_REST, NOTE_B5, NOTE_G5, NOTE_E5, NOTE_D5,
+    NOTE_F5, NOTE_A5, NOTE_C6, NOTE_A5, NOTE_G5, NOTE_E5, NOTE_C5, NOTE_E5,
+    NOTE_D5, NOTE_F5, NOTE_A5, NOTE_REST, NOTE_G5, NOTE_A5, NOTE_B5, NOTE_REST,
+    NOTE_E5, NOTE_G5, NOTE_A5, NOTE_C6, NOTE_A5, NOTE_G5, NOTE_E5, NOTE_G5,
+    NOTE_C5, NOTE_D5, NOTE_E5, NOTE_G5, NOTE_F5, NOTE_E5, NOTE_D5, NOTE_C5,
+    NOTE_A4, NOTE_C5, NOTE_E5, NOTE_G5, NOTE_A5, NOTE_G5, NOTE_F5, NOTE_D5,
+    NOTE_E5, NOTE_G5, NOTE_C6, NOTE_B5, NOTE_A5, NOTE_G5, NOTE_E5, NOTE_REST
+};
+
+static const uint16_t play_harmony[] = {
+    NOTE_C4, NOTE_REST, NOTE_E4, NOTE_REST, NOTE_G4, NOTE_REST, NOTE_E4, NOTE_REST,
+    NOTE_C4, NOTE_REST, NOTE_G4, NOTE_REST, NOTE_E4, NOTE_REST, NOTE_G4, NOTE_REST,
+    NOTE_F4, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_C5, NOTE_REST, NOTE_A4, NOTE_REST,
+    NOTE_G4, NOTE_REST, NOTE_B4, NOTE_REST, NOTE_D5, NOTE_REST, NOTE_B4, NOTE_REST,
+    NOTE_C4, NOTE_REST, NOTE_E4, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_G4, NOTE_REST,
+    NOTE_F4, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_G4, NOTE_REST, NOTE_E4, NOTE_REST,
+    NOTE_F4, NOTE_REST, NOTE_C5, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_F4, NOTE_REST,
+    NOTE_G4, NOTE_REST, NOTE_B4, NOTE_REST, NOTE_C5, NOTE_REST, NOTE_G4, NOTE_REST
+};
+
+static const uint16_t play_bass[] = {
+    BASS_C3, NOTE_REST, BASS_G3, NOTE_REST, BASS_A3, NOTE_REST, BASS_G3, NOTE_REST,
+    BASS_C3, NOTE_REST, BASS_G3, NOTE_REST, BASS_E3, NOTE_REST, BASS_G3, NOTE_REST,
+    BASS_F3, NOTE_REST, BASS_C3, NOTE_REST, BASS_A3, NOTE_REST, BASS_C3, NOTE_REST,
+    BASS_G3, NOTE_REST, BASS_D3, NOTE_REST, BASS_G3, NOTE_REST, BASS_B3, NOTE_REST,
+    BASS_C3, NOTE_REST, BASS_G3, NOTE_REST, BASS_A3, NOTE_REST, BASS_E3, NOTE_REST,
+    BASS_F3, NOTE_REST, BASS_C3, NOTE_REST, BASS_G3, NOTE_REST, BASS_C3, NOTE_REST,
+    BASS_F3, NOTE_REST, BASS_C3, NOTE_REST, BASS_A3, NOTE_REST, BASS_D3, NOTE_REST,
+    BASS_G3, NOTE_REST, BASS_D3, NOTE_REST, BASS_C3, NOTE_REST, NOTE_REST, NOTE_REST
+};
+
+static const uint8_t play_drums[] = {
+    DRUM_KICK, DRUM_HAT, DRUM_HAT, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_HAT, DRUM_HAT,
+    DRUM_KICK, DRUM_HAT, DRUM_KICK, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_HAT, DRUM_HAT,
+    DRUM_KICK, DRUM_HAT, DRUM_HAT, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_KICK, DRUM_HAT,
+    DRUM_KICK, DRUM_HAT, DRUM_HAT, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_HAT, DRUM_HAT,
+    DRUM_KICK, DRUM_HAT, DRUM_HAT, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_KICK, DRUM_HAT,
+    DRUM_KICK, DRUM_HAT, DRUM_HAT, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_HAT, DRUM_HAT,
+    DRUM_KICK, DRUM_HAT, DRUM_HAT, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_KICK, DRUM_HAT,
+    DRUM_KICK, DRUM_HAT, DRUM_HAT, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_HAT, DRUM_HAT
+};
+
+static const uint16_t switch_lead[] = {
+    NOTE_D5, NOTE_F5, NOTE_A5, NOTE_F5, NOTE_D5, NOTE_REST, NOTE_F5, NOTE_REST,
+    NOTE_A4, NOTE_D5, NOTE_F5, NOTE_A5, NOTE_G5, NOTE_F5, NOTE_E5, NOTE_C5,
+    NOTE_D5, NOTE_F5, NOTE_A5, NOTE_C6, NOTE_A5, NOTE_G5, NOTE_F5, NOTE_D5,
+    NOTE_DS5, NOTE_F5, NOTE_G5, NOTE_A5, NOTE_C6, NOTE_A5, NOTE_F5, NOTE_REST
+};
+
+static const uint16_t switch_harmony[] = {
+    NOTE_D4, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_F4, NOTE_REST, NOTE_A4, NOTE_REST,
+    NOTE_D4, NOTE_REST, NOTE_F4, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_C5, NOTE_REST,
+    NOTE_G4, NOTE_REST, NOTE_D5, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_G4, NOTE_REST,
+    NOTE_D4, NOTE_REST, NOTE_F4, NOTE_REST, NOTE_A4, NOTE_C5, NOTE_A4, NOTE_REST
+};
+
+static const uint16_t switch_bass[] = {
+    BASS_D3, NOTE_REST, BASS_A3, NOTE_REST, BASS_D3, NOTE_REST, BASS_A3, NOTE_REST,
+    BASS_D3, NOTE_REST, BASS_F3, NOTE_REST, BASS_A3, NOTE_REST, BASS_C3, NOTE_REST,
+    BASS_G3, NOTE_REST, BASS_D3, NOTE_REST, BASS_A3, NOTE_REST, BASS_G3, NOTE_REST,
+    BASS_D3, NOTE_REST, BASS_A3, NOTE_REST, BASS_D3, NOTE_REST, NOTE_REST, NOTE_REST
+};
+
+static const uint8_t switch_drums[] = {
+    DRUM_KICK, DRUM_TICK, DRUM_HAT, DRUM_TICK, DRUM_SNARE, DRUM_TICK, DRUM_HAT, DRUM_TICK,
+    DRUM_KICK, DRUM_TICK, DRUM_KICK, DRUM_TICK, DRUM_SNARE, DRUM_TICK, DRUM_HAT, DRUM_TICK,
+    DRUM_KICK, DRUM_TICK, DRUM_HAT, DRUM_TICK, DRUM_SNARE, DRUM_TICK, DRUM_HAT, DRUM_TICK,
+    DRUM_KICK, DRUM_TICK, DRUM_SNARE, DRUM_TICK, DRUM_BOOM, DRUM_TICK, DRUM_HAT, DRUM_TICK
+};
+
+static const uint16_t water_lead[] = {
+    NOTE_F5, NOTE_A5, NOTE_C6, NOTE_A5, NOTE_G5, NOTE_E5, NOTE_C5, NOTE_REST,
+    NOTE_D5, NOTE_F5, NOTE_A5, NOTE_F5, NOTE_E5, NOTE_G5, NOTE_C6, NOTE_REST,
+    NOTE_A4, NOTE_C5, NOTE_F5, NOTE_A5, NOTE_G5, NOTE_F5, NOTE_D5, NOTE_REST,
+    NOTE_E5, NOTE_G5, NOTE_A5, NOTE_C6, NOTE_A5, NOTE_G5, NOTE_F5, NOTE_REST
+};
+
+static const uint16_t water_harmony[] = {
+    NOTE_F4, NOTE_REST, NOTE_C5, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_F4, NOTE_REST,
+    NOTE_D4, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_G4, NOTE_REST, NOTE_C5, NOTE_REST,
+    NOTE_F4, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_C5, NOTE_REST, NOTE_A4, NOTE_REST,
+    NOTE_G4, NOTE_REST, NOTE_C5, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_F4, NOTE_REST
+};
+
+static const uint16_t water_bass[] = {
+    BASS_F3, NOTE_REST, NOTE_REST, BASS_C3, BASS_F3, NOTE_REST, NOTE_REST, NOTE_REST,
+    BASS_D3, NOTE_REST, NOTE_REST, BASS_A3, BASS_G3, NOTE_REST, NOTE_REST, NOTE_REST,
+    BASS_F3, NOTE_REST, NOTE_REST, BASS_C3, BASS_A3, NOTE_REST, NOTE_REST, NOTE_REST,
+    BASS_G3, NOTE_REST, NOTE_REST, BASS_C3, BASS_F3, NOTE_REST, NOTE_REST, NOTE_REST
+};
+
+static const uint8_t water_drums[] = {
+    DRUM_KICK, DRUM_NONE, DRUM_HAT, DRUM_NONE, DRUM_TICK, DRUM_NONE, DRUM_HAT, DRUM_NONE,
+    DRUM_NONE, DRUM_NONE, DRUM_HAT, DRUM_NONE, DRUM_SNARE, DRUM_NONE, DRUM_HAT, DRUM_NONE,
+    DRUM_KICK, DRUM_NONE, DRUM_HAT, DRUM_NONE, DRUM_NONE, DRUM_NONE, DRUM_HAT, DRUM_NONE,
+    DRUM_NONE, DRUM_NONE, DRUM_HAT, DRUM_NONE, DRUM_SNARE, DRUM_NONE, DRUM_TICK, DRUM_NONE
+};
+
+static const uint16_t motion_lead[] = {
+    NOTE_G5, NOTE_A5, NOTE_B5, NOTE_G5, NOTE_D5, NOTE_E5, NOTE_G5, NOTE_B5,
+    NOTE_A5, NOTE_G5, NOTE_E5, NOTE_D5, NOTE_G5, NOTE_REST, NOTE_B5, NOTE_REST,
+    NOTE_C6, NOTE_B5, NOTE_A5, NOTE_G5, NOTE_E5, NOTE_G5, NOTE_A5, NOTE_C6,
+    NOTE_B5, NOTE_G5, NOTE_E5, NOTE_D5, NOTE_G5, NOTE_A5, NOTE_B5, NOTE_REST
+};
+
+static const uint16_t motion_harmony[] = {
+    NOTE_G4, NOTE_REST, NOTE_D5, NOTE_REST, NOTE_B4, NOTE_REST, NOTE_D5, NOTE_REST,
+    NOTE_C5, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_G4, NOTE_REST, NOTE_B4, NOTE_REST,
+    NOTE_C5, NOTE_REST, NOTE_G4, NOTE_REST, NOTE_E4, NOTE_REST, NOTE_G4, NOTE_REST,
+    NOTE_D5, NOTE_REST, NOTE_B4, NOTE_REST, NOTE_G4, NOTE_REST, NOTE_D5, NOTE_REST
+};
+
+static const uint16_t motion_bass[] = {
+    BASS_G3, NOTE_REST, BASS_D3, BASS_G3, BASS_B3, NOTE_REST, BASS_D3, NOTE_REST,
+    BASS_A3, NOTE_REST, BASS_E3, BASS_A3, BASS_G3, NOTE_REST, BASS_D3, NOTE_REST,
+    BASS_C3, NOTE_REST, BASS_G3, BASS_C3, BASS_E3, NOTE_REST, BASS_G3, NOTE_REST,
+    BASS_D3, NOTE_REST, BASS_A3, BASS_D3, BASS_G3, NOTE_REST, NOTE_REST, NOTE_REST
+};
+
+static const uint8_t motion_drums[] = {
+    DRUM_KICK, DRUM_HAT, DRUM_TICK, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_TICK, DRUM_HAT,
+    DRUM_KICK, DRUM_HAT, DRUM_KICK, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_TICK, DRUM_HAT,
+    DRUM_KICK, DRUM_HAT, DRUM_TICK, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_KICK, DRUM_HAT,
+    DRUM_BOOM, DRUM_HAT, DRUM_TICK, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_KICK, DRUM_HAT
+};
+
+static const uint16_t mixed_lead[] = {
+    NOTE_A5, NOTE_C6, NOTE_B5, NOTE_G5, NOTE_E5, NOTE_G5, NOTE_A5, NOTE_REST,
+    NOTE_F5, NOTE_A5, NOTE_C6, NOTE_A5, NOTE_GS5, NOTE_A5, NOTE_B5, NOTE_REST,
+    NOTE_E5, NOTE_G5, NOTE_A5, NOTE_C6, NOTE_B5, NOTE_A5, NOTE_G5, NOTE_E5,
+    NOTE_D5, NOTE_F5, NOTE_A5, NOTE_B5, NOTE_C6, NOTE_B5, NOTE_A5, NOTE_REST
+};
+
+static const uint16_t mixed_harmony[] = {
+    NOTE_A4, NOTE_REST, NOTE_E5, NOTE_REST, NOTE_C5, NOTE_REST, NOTE_E5, NOTE_REST,
+    NOTE_F4, NOTE_REST, NOTE_C5, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_C5, NOTE_REST,
+    NOTE_E4, NOTE_REST, NOTE_B4, NOTE_REST, NOTE_G4, NOTE_REST, NOTE_B4, NOTE_REST,
+    NOTE_D4, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_F4, NOTE_A4, NOTE_C5, NOTE_REST
+};
+
+static const uint16_t mixed_bass[] = {
+    BASS_A3, NOTE_REST, BASS_E3, NOTE_REST, BASS_A3, NOTE_REST, BASS_G3, NOTE_REST,
+    BASS_F3, NOTE_REST, BASS_C3, NOTE_REST, BASS_F3, NOTE_REST, BASS_E3, NOTE_REST,
+    BASS_E3, NOTE_REST, BASS_B3, NOTE_REST, BASS_G3, NOTE_REST, BASS_E3, NOTE_REST,
+    BASS_D3, NOTE_REST, BASS_A3, NOTE_REST, BASS_F3, NOTE_REST, NOTE_REST, NOTE_REST
+};
+
+static const uint8_t mixed_drums[] = {
+    DRUM_BOOM, DRUM_HAT, DRUM_HAT, DRUM_TICK, DRUM_SNARE, DRUM_HAT, DRUM_KICK, DRUM_HAT,
+    DRUM_KICK, DRUM_TICK, DRUM_HAT, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_TICK, DRUM_HAT,
+    DRUM_BOOM, DRUM_HAT, DRUM_KICK, DRUM_HAT, DRUM_SNARE, DRUM_TICK, DRUM_HAT, DRUM_HAT,
+    DRUM_KICK, DRUM_HAT, DRUM_TICK, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_BOOM, DRUM_HAT
+};
+
+static const uint16_t panic_lead[] = {
+    NOTE_E5, NOTE_G5, NOTE_B5, NOTE_C6, NOTE_B5, NOTE_G5, NOTE_E5, NOTE_G5,
+    NOTE_D5, NOTE_FS5, NOTE_A5, NOTE_B5, NOTE_A5, NOTE_FS5, NOTE_D5, NOTE_FS5,
+    NOTE_E5, NOTE_G5, NOTE_B5, NOTE_E5, NOTE_C6, NOTE_B5, NOTE_A5, NOTE_G5,
+    NOTE_FS5, NOTE_A5, NOTE_C6, NOTE_A5, NOTE_B5, NOTE_A5, NOTE_G5, NOTE_REST
+};
+
+static const uint16_t panic_harmony[] = {
+    NOTE_E4, NOTE_REST, NOTE_B4, NOTE_REST, NOTE_G4, NOTE_REST, NOTE_B4, NOTE_REST,
+    NOTE_D4, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_FS4, NOTE_REST, NOTE_A4, NOTE_REST,
+    NOTE_E4, NOTE_REST, NOTE_G4, NOTE_REST, NOTE_B4, NOTE_REST, NOTE_G4, NOTE_REST,
+    NOTE_D4, NOTE_REST, NOTE_A4, NOTE_REST, NOTE_B4, NOTE_REST, NOTE_G4, NOTE_REST
+};
+
+static const uint16_t panic_bass[] = {
+    BASS_E3, BASS_E3, BASS_B3, NOTE_REST, BASS_E3, BASS_E3, BASS_B3, NOTE_REST,
+    BASS_D3, BASS_D3, BASS_A3, NOTE_REST, BASS_D3, BASS_D3, BASS_A3, NOTE_REST,
+    BASS_E3, BASS_E3, BASS_B3, NOTE_REST, BASS_C3, BASS_C3, BASS_G3, NOTE_REST,
+    BASS_D3, BASS_D3, BASS_A3, NOTE_REST, BASS_E3, NOTE_REST, NOTE_REST, NOTE_REST
+};
+
+static const uint8_t panic_drums[] = {
+    DRUM_BOOM, DRUM_HAT, DRUM_KICK, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_KICK, DRUM_HAT,
+    DRUM_KICK, DRUM_HAT, DRUM_KICK, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_KICK, DRUM_HAT,
+    DRUM_BOOM, DRUM_HAT, DRUM_KICK, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_BOOM, DRUM_HAT,
+    DRUM_KICK, DRUM_HAT, DRUM_TICK, DRUM_HAT, DRUM_SNARE, DRUM_HAT, DRUM_BOOM, DRUM_HAT
+};
+
+static const uint16_t clear_lead[] = {
+    NOTE_C5, NOTE_E5, NOTE_G5, NOTE_C6, NOTE_REST, NOTE_G5, NOTE_A5, NOTE_C6,
+    NOTE_B5, NOTE_A5, NOTE_G5, NOTE_REST, NOTE_C6, NOTE_REST, NOTE_REST, NOTE_REST
+};
+
+static const uint16_t clear_harmony[] = {
+    NOTE_C4, NOTE_E4, NOTE_G4, NOTE_C5, NOTE_REST, NOTE_E4, NOTE_F4, NOTE_A4,
+    NOTE_G4, NOTE_F4, NOTE_E4, NOTE_REST, NOTE_C5, NOTE_REST, NOTE_REST, NOTE_REST
+};
+
+static const uint16_t clear_bass[] = {
+    BASS_C3, NOTE_REST, BASS_G3, NOTE_REST, BASS_C3, NOTE_REST, BASS_F3, NOTE_REST,
+    BASS_G3, NOTE_REST, BASS_C3, NOTE_REST, BASS_C3, NOTE_REST, NOTE_REST, NOTE_REST
+};
+
+static const uint8_t clear_drums[] = {
+    DRUM_KICK, DRUM_HAT, DRUM_HAT, DRUM_SNARE, DRUM_NONE, DRUM_HAT, DRUM_KICK, DRUM_HAT,
+    DRUM_SNARE, DRUM_HAT, DRUM_HAT, DRUM_NONE, DRUM_KICK, DRUM_NONE, DRUM_NONE, DRUM_NONE
+};
+
+static const uint16_t dead_lead[] = {
+    NOTE_G4, NOTE_E4, NOTE_C4, NOTE_REST, NOTE_D4, NOTE_C4, NOTE_REST, NOTE_REST,
+    NOTE_C4, NOTE_REST, NOTE_REST, NOTE_REST
+};
+
+static const uint16_t dead_harmony[] = {
+    NOTE_E4, NOTE_C4, NOTE_REST, NOTE_REST, NOTE_C4, NOTE_REST, NOTE_REST, NOTE_REST,
+    NOTE_REST, NOTE_REST, NOTE_REST, NOTE_REST
+};
+
+static const uint16_t dead_bass[] = {
+    BASS_G3, NOTE_REST, BASS_C3, NOTE_REST, BASS_D3, NOTE_REST, BASS_C3, NOTE_REST,
+    NOTE_REST, NOTE_REST, NOTE_REST, NOTE_REST
+};
+
+static const uint8_t dead_drums[] = {
+    DRUM_SNARE, DRUM_NONE, DRUM_KICK, DRUM_NONE, DRUM_SNARE, DRUM_NONE, DRUM_KICK, DRUM_NONE,
+    DRUM_NONE, DRUM_NONE, DRUM_NONE, DRUM_NONE
+};
+
+static void music_silence(void) {
+    rAUD1ENV = 0;
+    rAUD2ENV = 0;
+    rAUD3LEVEL = 0;
+    rAUD4ENV = 0;
+}
+
+static void music_play_square1(uint16_t note, uint8_t volume, uint8_t duty) {
+    if (note == NOTE_REST) {
+        rAUD1ENV = 0;
+        return;
+    }
+    rAUD1SWEEP = 0;
+    rAUD1LEN = (uint8_t)(duty | AUDLEN_LENGTH(36));
+    rAUD1ENV = (uint8_t)(AUDENV_VOL(volume) | AUDENV_DOWN | AUDENV_LENGTH(1));
+    rAUD1LOW = (uint8_t)note;
+    rAUD1HIGH = (uint8_t)(((note >> 8) & 0x07u) | AUDHIGH_RESTART | AUDHIGH_LENGTH_ON);
+}
+
+static void music_play_square2(uint16_t note, uint8_t volume, uint8_t duty) {
+    if (note == NOTE_REST) {
+        rAUD2ENV = 0;
+        return;
+    }
+    rAUD2LEN = (uint8_t)(duty | AUDLEN_LENGTH(34));
+    rAUD2ENV = (uint8_t)(AUDENV_VOL(volume) | AUDENV_DOWN | AUDENV_LENGTH(1));
+    rAUD2LOW = (uint8_t)note;
+    rAUD2HIGH = (uint8_t)(((note >> 8) & 0x07u) | AUDHIGH_RESTART | AUDHIGH_LENGTH_ON);
+}
+
+static void music_play_wave(uint16_t note) {
+    if (note == NOTE_REST) {
+        rAUD3LEVEL = 0;
+        return;
+    }
+    rAUD3ENA = 0x80u;
+    rAUD3LEN = 180u;
+    rAUD3LEVEL = 0x40u;
+    rAUD3LOW = (uint8_t)note;
+    rAUD3HIGH = (uint8_t)(((note >> 8) & 0x07u) | AUDHIGH_RESTART | AUDHIGH_LENGTH_OFF);
+}
+
+static void music_play_drum(uint8_t drum) {
+    if (drum == DRUM_NONE) return;
+    if (drum == DRUM_KICK) {
+        rAUD4LEN = 28u;
+        rAUD4ENV = (uint8_t)(AUDENV_VOL(9) | AUDENV_DOWN | AUDENV_LENGTH(2));
+        rAUD4POLY = 0x65u;
+    } else if (drum == DRUM_SNARE) {
+        rAUD4LEN = 22u;
+        rAUD4ENV = (uint8_t)(AUDENV_VOL(7) | AUDENV_DOWN | AUDENV_LENGTH(2));
+        rAUD4POLY = 0x43u;
+    } else if (drum == DRUM_TICK) {
+        rAUD4LEN = 10u;
+        rAUD4ENV = (uint8_t)(AUDENV_VOL(3) | AUDENV_DOWN | AUDENV_LENGTH(1));
+        rAUD4POLY = (uint8_t)(0x12u | AUD4POLY_WIDTH_7BIT);
+    } else if (drum == DRUM_BOOM) {
+        rAUD4LEN = 34u;
+        rAUD4ENV = (uint8_t)(AUDENV_VOL(11) | AUDENV_DOWN | AUDENV_LENGTH(3));
+        rAUD4POLY = 0x76u;
+    } else {
+        rAUD4LEN = 18u;
+        rAUD4ENV = (uint8_t)(AUDENV_VOL(4) | AUDENV_DOWN | AUDENV_LENGTH(1));
+        rAUD4POLY = (uint8_t)(0x22u | AUD4POLY_WIDTH_7BIT);
+    }
+    rAUD4GO = (uint8_t)(AUDHIGH_RESTART | AUDHIGH_LENGTH_ON);
+}
+
+static uint8_t music_step_delay(void) {
+    if (music_track == MUSIC_TITLE) return 9u;
+    if (music_track == MUSIC_PLAY) return 8u;
+    if (music_track == MUSIC_SWITCH) return 7u;
+    if (music_track == MUSIC_WATER) return 10u;
+    if (music_track == MUSIC_MOTION) return 6u;
+    if (music_track == MUSIC_MIXED) return 7u;
+    if (music_track == MUSIC_PANIC) return 5u;
+    if (music_track == MUSIC_CLEAR) return 7u;
+    if (music_track == MUSIC_DEAD) return 10u;
+    return 8u;
+}
+
+static void music_run_pattern(const uint16_t *lead,
+                              const uint16_t *harmony,
+                              const uint16_t *bass,
+                              const uint8_t *drums,
+                              uint8_t length,
+                              uint8_t loop,
+                              uint8_t lead_volume,
+                              uint8_t harmony_volume,
+                              uint8_t lead_duty,
+                              uint8_t harmony_duty) {
+    uint8_t i;
+    if (music_step >= length) {
+        if (loop) music_step = 0;
+        else {
+            music_track = MUSIC_NONE;
+            music_silence();
+            return;
+        }
+    }
+
+    i = music_step;
+    music_play_square2(lead[i], lead_volume, lead_duty);
+    if (!music_sfx_timer) music_play_square1(harmony[i], harmony_volume, harmony_duty);
+    music_play_wave(bass[i]);
+    music_play_drum(drums[i]);
+    music_step++;
+}
+
+static void music_update(void) {
+    if (music_sfx_timer) music_sfx_timer--;
+    if (music_paused || (music_track == MUSIC_NONE)) return;
+    if (music_frame) {
+        music_frame--;
+        return;
+    }
+
+    music_frame = (uint8_t)(music_step_delay() - 1u);
+    if (music_track == MUSIC_TITLE) {
+        music_run_pattern(title_lead, title_harmony, title_bass, title_drums, (uint8_t)(sizeof(title_lead) / sizeof(title_lead[0])), 1u,
+                          8u, 4u, AUDLEN_DUTY_50, AUDLEN_DUTY_25);
+    } else if (music_track == MUSIC_PLAY) {
+        music_run_pattern(play_lead, play_harmony, play_bass, play_drums, (uint8_t)(sizeof(play_lead) / sizeof(play_lead[0])), 1u,
+                          9u, 4u, AUDLEN_DUTY_50, AUDLEN_DUTY_25);
+    } else if (music_track == MUSIC_SWITCH) {
+        music_run_pattern(switch_lead, switch_harmony, switch_bass, switch_drums, (uint8_t)(sizeof(switch_lead) / sizeof(switch_lead[0])), 1u,
+                          8u, 5u, AUDLEN_DUTY_12_5, AUDLEN_DUTY_25);
+    } else if (music_track == MUSIC_WATER) {
+        music_run_pattern(water_lead, water_harmony, water_bass, water_drums, (uint8_t)(sizeof(water_lead) / sizeof(water_lead[0])), 1u,
+                          7u, 3u, AUDLEN_DUTY_75, AUDLEN_DUTY_50);
+    } else if (music_track == MUSIC_MOTION) {
+        music_run_pattern(motion_lead, motion_harmony, motion_bass, motion_drums, (uint8_t)(sizeof(motion_lead) / sizeof(motion_lead[0])), 1u,
+                          10u, 5u, AUDLEN_DUTY_25, AUDLEN_DUTY_12_5);
+    } else if (music_track == MUSIC_MIXED) {
+        music_run_pattern(mixed_lead, mixed_harmony, mixed_bass, mixed_drums, (uint8_t)(sizeof(mixed_lead) / sizeof(mixed_lead[0])), 1u,
+                          10u, 5u, AUDLEN_DUTY_50, AUDLEN_DUTY_75);
+    } else if (music_track == MUSIC_PANIC) {
+        music_run_pattern(panic_lead, panic_harmony, panic_bass, panic_drums, (uint8_t)(sizeof(panic_lead) / sizeof(panic_lead[0])), 1u,
+                          12u, 6u, AUDLEN_DUTY_12_5, AUDLEN_DUTY_25);
+    } else if (music_track == MUSIC_CLEAR) {
+        music_run_pattern(clear_lead, clear_harmony, clear_bass, clear_drums, (uint8_t)(sizeof(clear_lead) / sizeof(clear_lead[0])), 0u,
+                          10u, 5u, AUDLEN_DUTY_50, AUDLEN_DUTY_25);
+    } else if (music_track == MUSIC_DEAD) {
+        music_run_pattern(dead_lead, dead_harmony, dead_bass, dead_drums, (uint8_t)(sizeof(dead_lead) / sizeof(dead_lead[0])), 0u,
+                          8u, 3u, AUDLEN_DUTY_75, AUDLEN_DUTY_25);
+    }
+}
+
+static void music_start(uint8_t track) {
+    music_track = track;
+    music_step = 0;
+    music_frame = 0;
+    music_paused = 0;
+    music_sfx_timer = 0;
+    music_silence();
+}
+
+static void music_pause(uint8_t paused) {
+    music_paused = paused;
+    if (paused) music_silence();
+}
+
+static void music_sfx_event(uint8_t event) {
+    if (music_track == MUSIC_DEAD) return;
+    if (event == EVENT_COIN) {
+        music_sfx_timer = 7u;
+        music_play_square1(NOTE_C6, 10u, AUDLEN_DUTY_25);
+    } else if (event == EVENT_BATTERY) {
+        music_sfx_timer = 10u;
+        music_play_square1(NOTE_G5, 12u, AUDLEN_DUTY_50);
+        music_play_drum(DRUM_HAT);
+    } else if (event == EVENT_BUBBLE) {
+        music_sfx_timer = 9u;
+        music_play_square1(NOTE_A5, 9u, AUDLEN_DUTY_75);
+    } else if (event == EVENT_SHIELD) {
+        music_sfx_timer = 12u;
+        music_play_square1(NOTE_C5, 11u, AUDLEN_DUTY_12_5);
+        music_play_drum(DRUM_SNARE);
+    } else if (event == EVENT_STOMP) {
+        music_play_drum(DRUM_SNARE);
+    } else if (event == EVENT_CRACK) {
+        music_play_drum(DRUM_KICK);
+    } else if (event == EVENT_SWITCH) {
+        music_sfx_timer = 8u;
+        music_play_square1(NOTE_D5, 8u, AUDLEN_DUTY_25);
+    }
+}
+
+static void init_sound(void) {
+    uint8_t i;
+    rAUDENA = AUDENA_ON;
+    rAUDVOL = (uint8_t)(AUDVOL_VOL_LEFT(5) | AUDVOL_VOL_RIGHT(5));
+    rAUDTERM = (uint8_t)(AUDTERM_1_LEFT | AUDTERM_2_LEFT | AUDTERM_3_LEFT | AUDTERM_4_LEFT |
+                         AUDTERM_1_RIGHT | AUDTERM_2_RIGHT | AUDTERM_3_RIGHT | AUDTERM_4_RIGHT);
+    rAUD1SWEEP = 0;
+    rAUD1ENV = 0;
+    rAUD2ENV = 0;
+    rAUD3ENA = 0;
+    for (i = 0; i < (uint8_t)(sizeof(bass_wave) / sizeof(bass_wave[0])); i++) {
+        AUD3WAVE[i] = bass_wave[i];
+    }
+    rAUD3ENA = 0x80u;
+    rAUD3LEVEL = 0;
+    rAUD4ENV = 0;
+}
 
 static uint8_t glyph_for(char c) {
     if ((c >= 'A') && (c <= 'Z')) return (uint8_t)(c - 'A');
@@ -513,6 +1052,20 @@ static void place_battery(uint8_t x, uint8_t y) {
     place_marker_down(x, y);
 }
 
+static void clear_if_danger(uint8_t x, uint8_t y) {
+    if (is_danger_tile(stage[y][x])) stage[y][x] = T_EMPTY;
+}
+
+static void soften_exit(void) {
+    clear_if_danger(15, 16);
+    clear_if_danger(16, 16);
+    clear_if_danger(17, 16);
+    clear_if_danger(16, 15);
+    clear_if_danger(17, 15);
+    clear_if_danger(18, 15);
+    place_marker_down(18, 16);
+}
+
 static uint16_t rng_step(uint16_t seed) {
     return (uint16_t)(seed * 1109u + 1987u);
 }
@@ -523,11 +1076,11 @@ static void reset_common(void) {
     for (y = 0; y < SCREEN_TILES_H; y++) {
         for (x = 0; x < SCREEN_TILES_W; x++) stage[y][x] = T_EMPTY;
     }
-    for (x = 0; x < SCREEN_TILES_W; x++) stage[CEILING_Y][x] = T_SOLID;
-    for (x = 0; x < SCREEN_TILES_W; x++) stage[17][x] = T_SOLID;
+    for (x = 0; x < SCREEN_TILES_W; x++) stage[CEILING_Y][x] = T_WALL;
+    for (x = 0; x < SCREEN_TILES_W; x++) stage[17][x] = T_WALL;
     for (y = CEILING_Y; y < SCREEN_TILES_H; y++) {
-        stage[y][0] = T_SOLID;
-        stage[y][19] = T_SOLID;
+        stage[y][0] = T_WALL;
+        stage[y][19] = T_WALL;
     }
     enemy_count = 0;
     moving_active = 0;
@@ -606,7 +1159,7 @@ static void build_tutorial_room(uint8_t local) {
         add_coin_line(13, 13, 3);
     } else if (local == 4u) {
         add_platform(2, 14, 4, T_SOLID);
-        stage[15][5] = T_SPRING;
+        stage[14][6] = T_SPRING;
         add_platform(11, 7, 5, T_SOLID);
         place_battery(14, 6);
         add_coin_line(12, 8, 3);
@@ -813,7 +1366,7 @@ static void build_mixed_room(uint8_t local) {
         place_battery(10, 9);
         add_enemy(14, 16, -1);
     } else if (route == 2u) {
-        stage[15][5] = T_SPRING;
+        stage[14][6] = T_SPRING;
         add_platform(9, 9, 5, T_TOGGLE);
         stage[13][4] = T_SWITCH;
         add_hazard_line(7, 16, 4, T_SPIKE);
@@ -874,6 +1427,7 @@ static void generate_adventure(uint8_t level) {
     } else {
         build_mixed_room(local);
     }
+    soften_exit();
 }
 
 static void generate_panic(uint16_t depth) {
@@ -918,6 +1472,15 @@ static void generate_panic(uint16_t depth) {
     }
 }
 
+static uint8_t music_track_for_room(void) {
+    if (game_mode == MODE_PANIC) return MUSIC_PANIC;
+    if (level_world == 1u) return MUSIC_SWITCH;
+    if (level_world == 2u) return MUSIC_WATER;
+    if (level_world == 3u) return MUSIC_MOTION;
+    if (level_world >= 4u) return MUSIC_MIXED;
+    return MUSIC_PLAY;
+}
+
 static void load_level(void) {
     if (game_mode == MODE_PANIC) {
         generate_panic(panic_depth);
@@ -928,6 +1491,7 @@ static void load_level(void) {
     hud_dirty = 1;
     hud_second = 0xffu;
     state = STATE_PLAY;
+    music_start(music_track_for_room());
 }
 
 static void hide_sprites(void) {
@@ -975,6 +1539,7 @@ static void start_feedback(uint8_t kind, uint8_t timer) {
 }
 
 static void emit_game_event(uint8_t event) {
+    music_sfx_event(event);
     if (event == EVENT_COIN) {
         coins++;
         mark_hud_dirty();
@@ -1003,6 +1568,7 @@ static void emit_game_event(uint8_t event) {
 static void present_frame(void) {
     uint8_t second;
     vsync();
+    music_update();
     if (state != STATE_PLAY) return;
 
     second = (uint8_t)(level_time / 60u);
@@ -1053,6 +1619,7 @@ static void hurt_player(void) {
         return;
     }
     state = STATE_DEAD;
+    music_start(MUSIC_DEAD);
     dead_wait = 24;
     hide_sprites();
     fill_screen(T_EMPTY);
@@ -1064,6 +1631,7 @@ static void hurt_player(void) {
 static void complete_level(void) {
     progress_record_clear();
     state = STATE_CLEAR;
+    music_start(MUSIC_CLEAR);
     clear_wait = 24;
     hide_sprites();
     fill_screen(T_EMPTY);
@@ -1373,9 +1941,9 @@ static void draw_player(void) {
         move_sprite(1, 0, 0);
     } else {
         move_sprite(0, px, py);
-        move_sprite(1, px, (uint8_t)(py + 8u));
+        move_sprite(1, 0, 0);
     }
-    if (bubble) move_sprite(10, px, (uint8_t)(py + 4u));
+    if (bubble) move_sprite(10, px, py);
     else move_sprite(10, 0, 0);
 }
 
@@ -1396,11 +1964,12 @@ static void draw_title_demo(void) {
     if (bounce > 7u) bounce = (uint8_t)(15u - bounce);
     py = (uint8_t)(78u - bounce);
     move_sprite(0, px, py);
-    move_sprite(1, px, (uint8_t)(py + 8u));
+    move_sprite(1, 0, 0);
 }
 
 static void show_title(void) {
     hide_sprites();
+    music_start(MUSIC_TITLE);
     menu_tick = 0;
     fill_screen(T_EMPTY);
     draw_menu_rule(0);
@@ -1618,6 +2187,7 @@ static void update_dead(uint8_t pressed) {
 
 static void show_pause(void) {
     hide_sprites();
+    music_pause(1u);
     fill_screen(T_EMPTY);
     draw_text(7, 5, "PAUSED");
     draw_text(4, 8, "START RESUME");
@@ -1648,6 +2218,7 @@ void main(void) {
     uint8_t joy;
     uint8_t pressed;
     init_video();
+    init_sound();
     save_read();
     show_title();
     while (1) {
@@ -1678,6 +2249,7 @@ void main(void) {
             if (pressed & J_START) {
                 redraw_stage();
                 mark_hud_dirty();
+                music_pause(0u);
                 state = STATE_PLAY;
             } else if (pressed & J_B) {
                 state = STATE_TITLE;
