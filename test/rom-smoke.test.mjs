@@ -5,6 +5,7 @@ import { test } from "node:test";
 const romPath = new URL("../dist/pocket-pogo-panic.gb", import.meta.url);
 const webRomPath = new URL("../public/roms/pocket-pogo-panic.gb", import.meta.url);
 const sourcePath = new URL("../src-rom/main.c", import.meta.url);
+const logicHeaderPath = new URL("../src-rom/game-logic.h", import.meta.url);
 const viteConfigPath = new URL("../vite.config.js", import.meta.url);
 
 test("ROM is built with the expected Game Boy header", () => {
@@ -25,7 +26,7 @@ test("browser ROM copy matches the built ROM", () => {
 });
 
 test("source advertises the complete adventure and mode set", () => {
-  const source = fs.readFileSync(sourcePath, "utf8");
+  const source = fs.readFileSync(sourcePath, "utf8") + fs.readFileSync(logicHeaderPath, "utf8");
   assert.match(source, /#define NUM_ADVENTURE_LEVELS 80/);
   assert.match(source, /MODE_ADVENTURE/);
   assert.match(source, /MODE_PANIC/);
@@ -38,6 +39,7 @@ test("source advertises the complete adventure and mode set", () => {
   assert.match(source, /T_BUBBLE/);
   assert.match(source, /MADE BY/);
   assert.match(source, /@bsunter/);
+  assert.match(source, /PRESENTS/);
 });
 
 test("web build output does not overwrite ROM artifacts", () => {

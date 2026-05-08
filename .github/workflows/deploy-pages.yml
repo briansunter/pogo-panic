@@ -21,34 +21,35 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
 
-      - name: Cache GBDK download
-        uses: actions/cache@v4
+      - name: Cache Nix store
+        uses: nix-community/cache-nix-action@v6
         with:
-          path: .tools/cache
-          key: gbdk-4.5.0-${{ runner.os }}-${{ runner.arch }}
+          primary-key: nix-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.nix', 'flake.lock') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-${{ runner.arch }}-
+          gc-max-store-size-linux: 1073741824
+          purge: true
+          purge-prefixes: nix-${{ runner.os }}-${{ runner.arch }}-
+          purge-created: 0
+          purge-last-accessed: 0
+          purge-primary-key: never
 
       - name: Install dependencies
-        run: npm ci
-
-      - name: Install GBDK
-        run: npm run setup:gbdk
+        run: nix develop --command npm ci
 
       - name: Test
-        run: npm test
+        run: nix develop --command npm test
 
       - name: Build site
-        run: npm run build
+        run: nix develop --command npm run build
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
@@ -61,6 +62,7 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
