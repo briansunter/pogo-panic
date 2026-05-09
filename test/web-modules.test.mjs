@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createAudioPreference, createCanvasScreen, createPocketPogoRunner } from "../src-web/emulator-runner.js";
+import { createAudioPreference, createCanvasScreen, createPogoPanicRunner } from "../src-web/emulator-runner.js";
 import { bindDirectionalPads, bindKeyboardControls, bindVirtualButtons } from "../src-web/input.js";
 import {
   generateAdventureLevel,
@@ -309,7 +309,7 @@ test("CanvasScreen remaps frames to a crisp Game Boy Pocket palette", () => {
   ]);
 });
 
-test("Pocket Pogo runner owns emulator boot ordering behind one interface", async () => {
+test("Pogo Panic runner owns emulator boot ordering behind one interface", async () => {
   const calls = [];
   const instance = {
     apu: {
@@ -339,7 +339,7 @@ test("Pocket Pogo runner owns emulator boot ordering behind one interface", asyn
     }
   }
   const statuses = [];
-  const runner = createPocketPogoRunner({
+  const runner = createPogoPanicRunner({
     GameboyCtor: FakeGameboy,
     romUrl: "/rom.gb",
     saveStore: {
@@ -392,7 +392,7 @@ test("AudioPreference persists muted state", () => {
   assert.equal(storage.getItem("audio"), "1");
 });
 
-test("Pocket Pogo runner suppresses muted unlocks and wires the sound toggle", async () => {
+test("Pogo Panic runner suppresses muted unlocks and wires the sound toggle", async () => {
   const calls = [];
   const listeners = new Map();
   const attrs = {};
@@ -443,7 +443,7 @@ test("Pocket Pogo runner suppresses muted unlocks and wires the sound toggle", a
     }
   }
 
-  const runner = createPocketPogoRunner({
+  const runner = createPogoPanicRunner({
     GameboyCtor: FakeGameboy,
     romUrl: "/rom.gb",
     saveStore: {

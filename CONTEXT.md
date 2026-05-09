@@ -1,9 +1,9 @@
-# Pocket Pogo Panic Context
+# Pogo Panic Context
 
 ## Domain Terms
 
-- Pocket Pogo Panic: a DMG Game Boy arcade platformer where the player is always bouncing on a pogo stick.
-- Pocket Pogo controls: left/right steer, A stomps, B tilts or short-hops, and Start pauses or confirms.
+- Pogo Panic: a DMG Game Boy arcade platformer where the player is always bouncing on a pogo stick.
+- Pogo Panic controls: left/right steer, A stomps, B tilts or short-hops, and Start pauses or confirms.
 - Adventure room: one of the curated fixed rooms in the 80-room Adventure mode.
 - Panic room: an endless generated room with safer spawn constraints and increasing hazard pressure.
 - Time Trial: a mode that reuses Adventure rooms while recording best time.

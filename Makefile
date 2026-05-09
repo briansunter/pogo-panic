@@ -1,7 +1,7 @@
 GBDK_HOME ?= .tools/gbdk
 LCC := $(GBDK_HOME)/bin/lcc
 
-PROJECT := pocket-pogo-panic
+PROJECT := pogo-panic
 ROM := dist/$(PROJECT).gb
 WEB_ROM := public/roms/$(PROJECT).gb
 SRC := src-rom/main.c src-rom/game-logic.c src-rom/tile-art.c

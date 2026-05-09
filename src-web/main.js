@@ -1,6 +1,6 @@
 import { Gameboy } from "gameboy-emulator";
 import { AUDIO_MUTED_KEY, ROM_URL, SAVE_KEY } from "./constants.js";
-import { createAudioPreference, createCanvasScreen, createPocketPogoRunner } from "./emulator-runner.js";
+import { createAudioPreference, createCanvasScreen, createPogoPanicRunner } from "./emulator-runner.js";
 import { bindInputControls } from "./input.js";
 import { renderLevelDebug } from "./level-debug.js";
 import { createSaveStore } from "./save-store.js";
@@ -27,7 +27,7 @@ if (new URLSearchParams(window.location.search).get("debug") === "levels") {
     }
   });
 } else {
-  const runner = createPocketPogoRunner({
+  const runner = createPogoPanicRunner({
     GameboyCtor: Gameboy,
     romUrl: ROM_URL,
     saveStore: createSaveStore({ storage: localStorage, key: SAVE_KEY }),

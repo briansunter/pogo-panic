@@ -42,7 +42,7 @@ export function createAudioPreference({ storage, key }) {
   };
 }
 
-export function createPocketPogoRunner({
+export function createPogoPanicRunner({
   GameboyCtor,
   romUrl,
   saveStore,

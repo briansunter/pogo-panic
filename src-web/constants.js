@@ -1,8 +1,8 @@
 const baseUrl = import.meta.env?.BASE_URL ?? "/";
 
-export const ROM_URL = `${baseUrl}roms/pocket-pogo-panic.gb`;
-export const SAVE_KEY = "pocket-pogo-panic.sram.v1";
-export const AUDIO_MUTED_KEY = "pocket-pogo-panic.audio-muted.v1";
+export const ROM_URL = `${baseUrl}roms/pogo-panic.gb`;
+export const SAVE_KEY = "pogo-panic.sram.v1";
+export const AUDIO_MUTED_KEY = "pogo-panic.audio-muted.v1";
 
 export const CONTROL_BINDINGS = {
   up: "isPressingUp",

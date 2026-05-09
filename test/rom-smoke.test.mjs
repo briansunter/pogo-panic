@@ -2,14 +2,14 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { test } from "node:test";
 
-const romPath = new URL("../dist/pocket-pogo-panic.gb", import.meta.url);
-const webRomPath = new URL("../public/roms/pocket-pogo-panic.gb", import.meta.url);
+const romPath = new URL("../dist/pogo-panic.gb", import.meta.url);
+const webRomPath = new URL("../public/roms/pogo-panic.gb", import.meta.url);
 const sourcePath = new URL("../src-rom/main.c", import.meta.url);
 const logicHeaderPath = new URL("../src-rom/game-logic.h", import.meta.url);
 const viteConfigPath = new URL("../vite.config.js", import.meta.url);
 
 test("ROM is built with the expected Game Boy header", () => {
-  assert.ok(fs.existsSync(romPath), "dist/pocket-pogo-panic.gb should exist");
+  assert.ok(fs.existsSync(romPath), "dist/pogo-panic.gb should exist");
   const rom = fs.readFileSync(romPath);
   assert.ok(rom.length >= 0x8000, "ROM should be at least one 32K cartridge image");
 

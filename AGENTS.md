@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Pocket Pogo Panic is split between a Game Boy ROM and a browser runner.
+Pogo Panic is split between a Game Boy ROM and a browser runner.
 
 - `src-rom/main.c`: GBDK-2020 ROM source, including gameplay, level generation, save handling, menus, music, and rendering.
 - `src-web/`: Vite browser shell, emulator boot code, controls, SRAM persistence, styling, and the level debug viewer.
@@ -16,7 +16,7 @@ Pocket Pogo Panic is split between a Game Boy ROM and a browser runner.
 
 - `npm install`: install Vite and emulator dependencies.
 - `npm run setup:gbdk`: download/install GBDK into `.tools/gbdk`.
-- `npm run build:rom` or `make`: compile `src-rom/main.c` to `dist/pocket-pogo-panic.gb` and copy it to `public/roms/`.
+- `npm run build:rom` or `make`: compile `src-rom/main.c` to `dist/pogo-panic.gb` and copy it to `public/roms/`.
 - `npm run build:web`: build the Vite app into `site-dist/`.
 - `npm run build`: build both ROM and web app.
 - `npm test`: rebuild the ROM, then run all Node tests.

@@ -1,5 +1,5 @@
 {
-  description = "Pocket Pogo Panic — Game Boy ROM + browser runner dev environment";
+  description = "Pogo Panic — Game Boy ROM + browser runner dev environment";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -105,7 +105,7 @@
           shellHook = ''
             export GBDK_HOME="${gbdk-2020}"
             export PATH="${gbdk-2020}/bin:$PATH"
-            echo "Pocket Pogo Panic dev shell"
+            echo "Pogo Panic dev shell"
             echo "  GBDK_HOME=$GBDK_HOME"
             echo "  bun $(bun --version), node $(node --version), make $(make --version | head -n1), $(cc --version | head -n1)"
             echo ""
