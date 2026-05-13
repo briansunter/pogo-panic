@@ -4,6 +4,8 @@ A tiny Game Boy arcade platformer built with GBDK-2020. The player is always bou
 
 **Play it in your browser:** https://briansunter.github.io/pogo-panic/
 
+![Pogo Panic running in the browser](docs/media/screenshot.png)
+
 ## Build
 
 ```sh
