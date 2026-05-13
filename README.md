@@ -2,6 +2,8 @@
 
 A tiny Game Boy arcade platformer built with GBDK-2020. The player is always bouncing on a pogo stick; steer left/right, stomp with A to break cracked blocks and rocks, use B to tilt/short-hop, and grab the golden battery before reaching the exit.
 
+**Play it in your browser:** https://briansunter.github.io/pogo-panic/
+
 ## Build
 
 ```sh
