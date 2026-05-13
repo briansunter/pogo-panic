@@ -6,6 +6,8 @@ A tiny Game Boy arcade platformer built with GBDK-2020. The player is always bou
 
 ![Pogo Panic running in the browser](docs/media/screenshot.png)
 
+![Gameplay — level A01, dodging spikes and bouncing for the battery](docs/media/gameplay.png)
+
 ## Build
 
 ```sh
